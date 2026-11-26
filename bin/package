@@ -1,0 +1,90 @@
+#!/usr/bin/env bash
+# This file is part of Moodle - https://moodle.org/
+#
+# Moodle is free software: you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation, either version 3 of the License, or
+# (at your option) any later version.
+#
+# Moodle is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU General Public License for more details.
+#
+# You should have received a copy of the GNU General Public License
+# along with Moodle.  If not, see <https://www.gnu.org/licenses/>.
+#
+# Builds the installable packages, with the folder vcostaedu/ at the root of the zip:
+#
+#   dist/local_vcostaedu-<release>.zip        English only, for the Moodle Marketplace.
+#   dist/local_vcostaedu-<release>-ptbr.zip   The same plus lang/pt_br, for direct distribution
+#                                             until the translation is in AMOS.
+#
+# Only files tracked by git go in. Left out: bin/, dist/, docs/, extra/ (Portuguese strings
+# source and end-to-end tests), .github/, CI settings, README.pt_br.md (the packages ship the
+# English README) and retorno.md. tests/ (PHPUnit) goes in.
+#
+# Usage: bin/package   (from the repository root; needs git and python3)
+#
+# @package    local_vcostaedu
+# @copyright  2026 VCOSTA
+# @license    http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
+
+set -euo pipefail
+
+cd "$(dirname "$0")/.."
+
+RELEASE="$(sed -n "s/^\$plugin->release *= *'\([^']*\)'.*/\1/p" version.php)"
+if [ -z "$RELEASE" ]; then
+    echo "Could not read \$plugin->release from version.php" >&2
+    exit 1
+fi
+
+if [ -n "$(git status --porcelain -- . ':!dist')" ]; then
+    echo "Warning: there are uncommitted changes; they go into the packages as they are on disk." >&2
+fi
+
+LIST="$(mktemp)"
+trap 'rm -f "$LIST"' EXIT
+git ls-files \
+    | grep -v -E '^(bin/|dist/|docs/|extra/|\.github/|retorno\.md$|README\.pt_br\.md$|\.gitattributes$|\.gitignore$|\.moodle-plugin-ci\.yml$)' \
+    > "$LIST"
+
+PY="$(command -v python3 || command -v python || true)"
+if [ -z "$PY" ]; then
+    echo "python3 is needed to build the zip files." >&2
+    exit 1
+fi
+
+mkdir -p dist
+rm -f dist/local_vcostaedu-*.zip
+
+"$PY" - "$LIST" "dist/local_vcostaedu-$RELEASE.zip" "dist/local_vcostaedu-$RELEASE-ptbr.zip" <<'PYTHON'
+import sys
+import zipfile
+
+listfile, englishzip, ptbrzip = sys.argv[1], sys.argv[2], sys.argv[3]
+with open(listfile, encoding='utf-8') as f:
+    files = sorted(line.strip() for line in f if line.strip())
+
+# Fixed dates make the packages reproducible.
+def add(z, archivepath, sourcepath):
+    with open(sourcepath, 'rb') as source:
+        data = source.read()
+    info = zipfile.ZipInfo('vcostaedu/' + archivepath, date_time=(2026, 1, 1, 0, 0, 0))
+    info.compress_type = zipfile.ZIP_DEFLATED
+    info.external_attr = 0o644 << 16
+    z.writestr(info, data)
+
+with zipfile.ZipFile(englishzip, 'w', zipfile.ZIP_DEFLATED) as z:
+    for path in files:
+        add(z, path, path)
+
+with zipfile.ZipFile(ptbrzip, 'w', zipfile.ZIP_DEFLATED) as z:
+    for path in sorted(files + ['lang/pt_br/local_vcostaedu.php']):
+        source = 'extra/lang/pt_br/local_vcostaedu.php' if path.startswith('lang/pt_br/') else path
+        add(z, path, source)
+
+print(len(files), 'files in', englishzip)
+print(len(files) + 1, 'files in', ptbrzip)
+PYTHON

@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<COMPATIBILITY_MATRIX>
+  <PLUGIN name="local_vcostaedu">
+    <CUSTOM_CHECKS>
+      <CUSTOM_CHECK function="local_vcostaedu\environment::check_service_name" level="required">
+      </CUSTOM_CHECK>
+    </CUSTOM_CHECKS>
+  </PLUGIN>
+</COMPATIBILITY_MATRIX>

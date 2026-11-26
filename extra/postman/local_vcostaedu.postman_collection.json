@@ -1,0 +1,4676 @@
+{
+  "info": {
+    "name": "local_vcostaedu: VCOSTAEDU service for reviewers",
+    "description": "Requests for the web service \"VCOSTAEDU\" (short name `local_vcostaedu`) created by the Moodle plugin local_vcostaedu. Fill in two collection variables: `baseurl`, the Moodle address without a slash at the end, and `token`, the key shown on *Site administration > Plugins > Local plugins > VCOSTAEDU > Connect to VCOSTAEDU*. Then run the folders in order, or the whole collection with the collection runner. Every request is a POST to the Moodle REST server with a JSON answer, and the key travels in the body. Guide: extra/postman/README.md.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "event": [
+    {
+      "listen": "prerequest",
+      "script": {
+        "type": "text/javascript",
+        "exec": [
+          "// The two values the reviewer fills in: the Moodle address and the key of the connect page.",
+          "const baseurl = String(pm.variables.get('baseurl') || '');",
+          "if (!baseurl) {",
+          "    throw new Error('Fill in the collection variable \"baseurl\" (the Moodle address, without a slash at the end).');",
+          "}",
+          "if (baseurl.endsWith('/')) {",
+          "    throw new Error('Remove the slash at the end of \"baseurl\".');",
+          "}",
+          "if (!pm.info.requestName.includes('wrong key') && !pm.variables.get('token')) {",
+          "    throw new Error('Fill in the collection variable \"token\" (the key shown on the page Connect to VCOSTAEDU).');",
+          "}"
+        ]
+      }
+    }
+  ],
+  "variable": [
+    {
+      "key": "baseurl",
+      "value": "",
+      "type": "string",
+      "description": "Moodle address, without a slash at the end."
+    },
+    {
+      "key": "token",
+      "value": "",
+      "type": "string",
+      "description": "Key shown on the page Connect to VCOSTAEDU."
+    }
+  ],
+  "item": [
+    {
+      "name": "1. Check the connection",
+      "description": "The simplest call of the service. It proves that `baseurl` and `token` are right, shows the Moodle version and lists the 17 functions of the service \"VCOSTAEDU\".",
+      "item": [
+        {
+          "name": "Site information and the functions of the key",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const raw = pm.response.text().trim();",
+                  "let d = null;",
+                  "try { d = JSON.parse(raw); } catch (e) { d = undefined; }",
+                  "const isError = (x) => x !== null && typeof x === 'object' && !Array.isArray(x) && typeof x.errorcode === 'string';",
+                  "",
+                  "pm.test('Moodle answers with JSON and no error', () => {",
+                  "    pm.expect(d, 'response is not JSON: ' + raw.slice(0, 200)).to.not.equal(undefined);",
+                  "    pm.expect(isError(d), raw.slice(0, 300)).to.be.false;",
+                  "});",
+                  "",
+                  "pm.test('The key belongs to the service user vcostaedu_ws', () => {",
+                  "    pm.expect(d.username).to.equal('vcostaedu_ws');",
+                  "});",
+                  "pm.test('The key may call the 17 functions of the service', () => {",
+                  "    const names = (d.functions || []).map((f) => f.name);",
+                  "    const expected = [\"core_webservice_get_site_info\", \"core_user_create_users\", \"core_user_update_users\", \"core_user_get_users_by_field\", \"core_user_get_users\", \"core_course_get_categories\", \"core_course_create_categories\", \"core_course_get_courses_by_field\", \"core_course_create_courses\", \"core_course_update_courses\", \"enrol_manual_enrol_users\", \"enrol_manual_unenrol_users\", \"core_enrol_get_enrolled_users\", \"core_enrol_get_users_courses\", \"gradereport_user_get_grade_items\", \"local_vcostaedu_request_login_url\", \"local_vcostaedu_find_users_by_email\"];",
+                  "    expected.forEach((f) => pm.expect(names, f).to.include(f));",
+                  "    pm.expect(names.length).to.equal(17);",
+                  "});",
+                  "console.log('Moodle ' + d.release + ' at ' + d.siteurl);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/x-www-form-urlencoded"
+              }
+            ],
+            "body": {
+              "mode": "urlencoded",
+              "urlencoded": [
+                {
+                  "key": "wstoken",
+                  "value": "{{token}}",
+                  "type": "text"
+                },
+                {
+                  "key": "wsfunction",
+                  "value": "core_webservice_get_site_info",
+                  "type": "text"
+                },
+                {
+                  "key": "moodlewsrestformat",
+                  "value": "json",
+                  "type": "text"
+                }
+              ]
+            },
+            "url": {
+              "raw": "{{baseurl}}/webservice/rest/server.php",
+              "host": [
+                "{{baseurl}}"
+              ],
+              "path": [
+                "webservice",
+                "rest",
+                "server.php"
+              ]
+            },
+            "description": "Answers with the site name, the Moodle version and the functions this key may call. Expected: the service user `vcostaedu_ws` and the 17 functions of the service.\n\nFunction: `core_webservice_get_site_info`."
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "2. Full cycle",
+      "description": "The path an academic system follows: a category, a course, a teacher and a student, the enrolments, the checks, the grades and the one-time login link. Every item created here starts with `VCOSTAEDU-TEST` (category and course) or `vcostaedutest.` (users) and ends with a suffix that is new on every run. Run the folders in order: folders 4 and 6 use what this folder creates.",
+      "item": [
+        {
+          "name": "Create a category",
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "// A new suffix on every run, so that the collection can run many times on the same site.",
+                  "const suffix = Date.now().toString(36) + Math.floor(Math.random() * 1296).toString(36).padStart(2, '0');",
+                  "pm.collectionVariables.set('suffix', suffix);",
+                  "pm.collectionVariables.set('studentusername', 'vcostaedutest.student.' + suffix);",
+                  "pm.collectionVariables.set('teacherusername', 'vcostaedutest.teacher.' + suffix);"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const raw = pm.response.text().trim();",
+                  "let d = null;",
+                  "try { d = JSON.parse(raw); } catch (e) { d = undefined; }",
+                  "const isError = (x) => x !== null && typeof x === 'object' && !Array.isArray(x) && typeof x.errorcode === 'string';",
+                  "",
+                  "pm.test('Moodle answers with JSON and no error', () => {",
+                  "    pm.expect(d, 'response is not JSON: ' + raw.slice(0, 200)).to.not.equal(undefined);",
+                  "    pm.expect(isError(d), raw.slice(0, 300)).to.be.false;",
+                  "});",
+                  "",
+                  "pm.test('The category was created', () => {",
+                  "    pm.expect(d).to.be.an('array').with.lengthOf(1);",
+                  "    pm.expect(d[0].id).to.be.a('number');",
+                  "    pm.collectionVariables.set('categoryid', d[0].id);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/x-www-form-urlencoded"
+              }
+            ],
+            "body": {
+              "mode": "urlencoded",
+              "urlencoded": [
+                {
+                  "key": "wstoken",
+                  "value": "{{token}}",
+                  "type": "text"
+                },
+                {
+                  "key": "wsfunction",
+                  "value": "core_course_create_categories",
+                  "type": "text"
+                },
+                {
+                  "key": "moodlewsrestformat",
+                  "value": "json",
+                  "type": "text"
+                },
+                {
+                  "key": "categories[0][name]",
+                  "value": "VCOSTAEDU-TEST {{suffix}}",
+                  "type": "text"
+                },
+                {
+                  "key": "categories[0][idnumber]",
+                  "value": "VCOSTAEDU-TEST-CAT-{{suffix}}",
+                  "type": "text"
+                },
+                {
+                  "key": "categories[0][parent]",
+                  "value": "0",
+                  "type": "text"
+                }
+              ]
+            },
+            "url": {
+              "raw": "{{baseurl}}/webservice/rest/server.php",
+              "host": [
+                "{{baseurl}}"
+              ],
+              "path": [
+                "webservice",
+                "rest",
+                "server.php"
+              ]
+            },
+            "description": "Creates the test category `VCOSTAEDU-TEST <suffix>` at the top level. Expected: its id.\n\nFunction: `core_course_create_categories`."
+          },
+          "response": []
+        },
+        {
+          "name": "Find the category by its id number",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const raw = pm.response.text().trim();",
+                  "let d = null;",
+                  "try { d = JSON.parse(raw); } catch (e) { d = undefined; }",
+                  "const isError = (x) => x !== null && typeof x === 'object' && !Array.isArray(x) && typeof x.errorcode === 'string';",
+                  "",
+                  "pm.test('Moodle answers with JSON and no error', () => {",
+                  "    pm.expect(d, 'response is not JSON: ' + raw.slice(0, 200)).to.not.equal(undefined);",
+                  "    pm.expect(isError(d), raw.slice(0, 300)).to.be.false;",
+                  "});",
+                  "",
+                  "pm.test('The same category is found', () => {",
+                  "    pm.expect(d).to.be.an('array').with.lengthOf(1);",
+                  "    pm.expect(d[0].id).to.equal(Number(pm.variables.get('categoryid')));",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/x-www-form-urlencoded"
+              }
+            ],
+            "body": {
+              "mode": "urlencoded",
+              "urlencoded": [
+                {
+                  "key": "wstoken",
+                  "value": "{{token}}",
+                  "type": "text"
+                },
+                {
+                  "key": "wsfunction",
+                  "value": "core_course_get_categories",
+                  "type": "text"
+                },
+                {
+                  "key": "moodlewsrestformat",
+                  "value": "json",
+                  "type": "text"
+                },
+                {
+                  "key": "criteria[0][key]",
+                  "value": "idnumber",
+                  "type": "text"
+                },
+                {
+                  "key": "criteria[0][value]",
+                  "value": "VCOSTAEDU-TEST-CAT-{{suffix}}",
+                  "type": "text"
+                }
+              ]
+            },
+            "url": {
+              "raw": "{{baseurl}}/webservice/rest/server.php",
+              "host": [
+                "{{baseurl}}"
+              ],
+              "path": [
+                "webservice",
+                "rest",
+                "server.php"
+              ]
+            },
+            "description": "Reads the category back by `idnumber`. Expected: the category just created.\n\nFunction: `core_course_get_categories`."
+          },
+          "response": []
+        },
+        {
+          "name": "Create a course",
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const today = new Date();",
+                  "today.setUTCHours(0, 0, 0, 0);",
+                  "pm.collectionVariables.set('startdate', Math.floor(today.getTime() / 1000));"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const raw = pm.response.text().trim();",
+                  "let d = null;",
+                  "try { d = JSON.parse(raw); } catch (e) { d = undefined; }",
+                  "const isError = (x) => x !== null && typeof x === 'object' && !Array.isArray(x) && typeof x.errorcode === 'string';",
+                  "",
+                  "pm.test('Moodle answers with JSON and no error', () => {",
+                  "    pm.expect(d, 'response is not JSON: ' + raw.slice(0, 200)).to.not.equal(undefined);",
+                  "    pm.expect(isError(d), raw.slice(0, 300)).to.be.false;",
+                  "});",
+                  "",
+                  "pm.test('The course was created', () => {",
+                  "    pm.expect(d).to.be.an('array').with.lengthOf(1);",
+                  "    pm.expect(d[0].id).to.be.a('number');",
+                  "    pm.collectionVariables.set('courseid', d[0].id);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/x-www-form-urlencoded"
+              }
+            ],
+            "body": {
+              "mode": "urlencoded",
+              "urlencoded": [
+                {
+                  "key": "wstoken",
+                  "value": "{{token}}",
+                  "type": "text"
+                },
+                {
+                  "key": "wsfunction",
+                  "value": "core_course_create_courses",
+                  "type": "text"
+                },
+                {
+                  "key": "moodlewsrestformat",
+                  "value": "json",
+                  "type": "text"
+                },
+                {
+                  "key": "courses[0][fullname]",
+                  "value": "VCOSTAEDU-TEST course {{suffix}}",
+                  "type": "text"
+                },
+                {
+                  "key": "courses[0][shortname]",
+                  "value": "VCOSTAEDU-TEST-{{suffix}}",
+                  "type": "text"
+                },
+                {
+                  "key": "courses[0][idnumber]",
+                  "value": "VCOSTAEDU-TEST-{{suffix}}",
+                  "type": "text"
+                },
+                {
+                  "key": "courses[0][categoryid]",
+                  "value": "{{categoryid}}",
+                  "type": "text"
+                },
+                {
+                  "key": "courses[0][startdate]",
+                  "value": "{{startdate}}",
+                  "type": "text"
+                }
+              ]
+            },
+            "url": {
+              "raw": "{{baseurl}}/webservice/rest/server.php",
+              "host": [
+                "{{baseurl}}"
+              ],
+              "path": [
+                "webservice",
+                "rest",
+                "server.php"
+              ]
+            },
+            "description": "Creates the test course `VCOSTAEDU-TEST-<suffix>` in that category, with an id number and a start date (today). Expected: its id.\n\nFunction: `core_course_create_courses`."
+          },
+          "response": []
+        },
+        {
+          "name": "Find the course by its id number",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const raw = pm.response.text().trim();",
+                  "let d = null;",
+                  "try { d = JSON.parse(raw); } catch (e) { d = undefined; }",
+                  "const isError = (x) => x !== null && typeof x === 'object' && !Array.isArray(x) && typeof x.errorcode === 'string';",
+                  "",
+                  "pm.test('Moodle answers with JSON and no error', () => {",
+                  "    pm.expect(d, 'response is not JSON: ' + raw.slice(0, 200)).to.not.equal(undefined);",
+                  "    pm.expect(isError(d), raw.slice(0, 300)).to.be.false;",
+                  "});",
+                  "",
+                  "pm.test('The same course is found, in the test category', () => {",
+                  "    pm.expect(d.courses).to.be.an('array').with.lengthOf(1);",
+                  "    pm.expect(d.courses[0].id).to.equal(Number(pm.variables.get('courseid')));",
+                  "    pm.expect(d.courses[0].categoryid).to.equal(Number(pm.variables.get('categoryid')));",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/x-www-form-urlencoded"
+              }
+            ],
+            "body": {
+              "mode": "urlencoded",
+              "urlencoded": [
+                {
+                  "key": "wstoken",
+                  "value": "{{token}}",
+                  "type": "text"
+                },
+                {
+                  "key": "wsfunction",
+                  "value": "core_course_get_courses_by_field",
+                  "type": "text"
+                },
+                {
+                  "key": "moodlewsrestformat",
+                  "value": "json",
+                  "type": "text"
+                },
+                {
+                  "key": "field",
+                  "value": "idnumber",
+                  "type": "text"
+                },
+                {
+                  "key": "value",
+                  "value": "VCOSTAEDU-TEST-{{suffix}}",
+                  "type": "text"
+                }
+              ]
+            },
+            "url": {
+              "raw": "{{baseurl}}/webservice/rest/server.php",
+              "host": [
+                "{{baseurl}}"
+              ],
+              "path": [
+                "webservice",
+                "rest",
+                "server.php"
+              ]
+            },
+            "description": "Reads the course back by `idnumber`, the way an academic system finds its own courses. Expected: the course just created, in the test category.\n\nFunction: `core_course_get_courses_by_field`."
+          },
+          "response": []
+        },
+        {
+          "name": "Update the course end date",
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.collectionVariables.set('enddate', Number(pm.variables.get('startdate')) + 365 * 24 * 3600);"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const raw = pm.response.text().trim();",
+                  "let d = null;",
+                  "try { d = JSON.parse(raw); } catch (e) { d = undefined; }",
+                  "const isError = (x) => x !== null && typeof x === 'object' && !Array.isArray(x) && typeof x.errorcode === 'string';",
+                  "",
+                  "pm.test('Moodle answers with JSON and no error', () => {",
+                  "    pm.expect(d, 'response is not JSON: ' + raw.slice(0, 200)).to.not.equal(undefined);",
+                  "    pm.expect(isError(d), raw.slice(0, 300)).to.be.false;",
+                  "});",
+                  "",
+                  "pm.test('Updated without warnings', () => {",
+                  "    pm.expect(d.warnings, JSON.stringify(d.warnings)).to.be.an('array').that.is.empty;",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/x-www-form-urlencoded"
+              }
+            ],
+            "body": {
+              "mode": "urlencoded",
+              "urlencoded": [
+                {
+                  "key": "wstoken",
+                  "value": "{{token}}",
+                  "type": "text"
+                },
+                {
+                  "key": "wsfunction",
+                  "value": "core_course_update_courses",
+                  "type": "text"
+                },
+                {
+                  "key": "moodlewsrestformat",
+                  "value": "json",
+                  "type": "text"
+                },
+                {
+                  "key": "courses[0][id]",
+                  "value": "{{courseid}}",
+                  "type": "text"
+                },
+                {
+                  "key": "courses[0][startdate]",
+                  "value": "{{startdate}}",
+                  "type": "text"
+                },
+                {
+                  "key": "courses[0][enddate]",
+                  "value": "{{enddate}}",
+                  "type": "text"
+                }
+              ]
+            },
+            "url": {
+              "raw": "{{baseurl}}/webservice/rest/server.php",
+              "host": [
+                "{{baseurl}}"
+              ],
+              "path": [
+                "webservice",
+                "rest",
+                "server.php"
+              ]
+            },
+            "description": "Sets the course end date to one year after the start date (Moodle asks for the start date in the same call). Expected: no warning.\n\nFunction: `core_course_update_courses`."
+          },
+          "response": []
+        },
+        {
+          "name": "Read the course back by id",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const raw = pm.response.text().trim();",
+                  "let d = null;",
+                  "try { d = JSON.parse(raw); } catch (e) { d = undefined; }",
+                  "const isError = (x) => x !== null && typeof x === 'object' && !Array.isArray(x) && typeof x.errorcode === 'string';",
+                  "",
+                  "pm.test('Moodle answers with JSON and no error', () => {",
+                  "    pm.expect(d, 'response is not JSON: ' + raw.slice(0, 200)).to.not.equal(undefined);",
+                  "    pm.expect(isError(d), raw.slice(0, 300)).to.be.false;",
+                  "});",
+                  "",
+                  "pm.test('The end date was saved', () => {",
+                  "    pm.expect(d.courses).to.be.an('array').with.lengthOf(1);",
+                  "    pm.expect(d.courses[0].enddate).to.equal(Number(pm.variables.get('enddate')));",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/x-www-form-urlencoded"
+              }
+            ],
+            "body": {
+              "mode": "urlencoded",
+              "urlencoded": [
+                {
+                  "key": "wstoken",
+                  "value": "{{token}}",
+                  "type": "text"
+                },
+                {
+                  "key": "wsfunction",
+                  "value": "core_course_get_courses_by_field",
+                  "type": "text"
+                },
+                {
+                  "key": "moodlewsrestformat",
+                  "value": "json",
+                  "type": "text"
+                },
+                {
+                  "key": "field",
+                  "value": "id",
+                  "type": "text"
+                },
+                {
+                  "key": "value",
+                  "value": "{{courseid}}",
+                  "type": "text"
+                }
+              ]
+            },
+            "url": {
+              "raw": "{{baseurl}}/webservice/rest/server.php",
+              "host": [
+                "{{baseurl}}"
+              ],
+              "path": [
+                "webservice",
+                "rest",
+                "server.php"
+              ]
+            },
+            "description": "Reads the course by `id`. Expected: the new end date.\n\nFunction: `core_course_get_courses_by_field`."
+          },
+          "response": []
+        },
+        {
+          "name": "Rename the course",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const raw = pm.response.text().trim();",
+                  "let d = null;",
+                  "try { d = JSON.parse(raw); } catch (e) { d = undefined; }",
+                  "const isError = (x) => x !== null && typeof x === 'object' && !Array.isArray(x) && typeof x.errorcode === 'string';",
+                  "",
+                  "pm.test('Moodle answers with JSON and no error', () => {",
+                  "    pm.expect(d, 'response is not JSON: ' + raw.slice(0, 200)).to.not.equal(undefined);",
+                  "    pm.expect(isError(d), raw.slice(0, 300)).to.be.false;",
+                  "});",
+                  "",
+                  "pm.test('Updated without warnings', () => {",
+                  "    pm.expect(d.warnings, JSON.stringify(d.warnings)).to.be.an('array').that.is.empty;",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/x-www-form-urlencoded"
+              }
+            ],
+            "body": {
+              "mode": "urlencoded",
+              "urlencoded": [
+                {
+                  "key": "wstoken",
+                  "value": "{{token}}",
+                  "type": "text"
+                },
+                {
+                  "key": "wsfunction",
+                  "value": "core_course_update_courses",
+                  "type": "text"
+                },
+                {
+                  "key": "moodlewsrestformat",
+                  "value": "json",
+                  "type": "text"
+                },
+                {
+                  "key": "courses[0][id]",
+                  "value": "{{courseid}}",
+                  "type": "text"
+                },
+                {
+                  "key": "courses[0][fullname]",
+                  "value": "VCOSTAEDU-TEST course {{suffix}} renamed",
+                  "type": "text"
+                },
+                {
+                  "key": "courses[0][shortname]",
+                  "value": "VCOSTAEDU-TEST-R-{{suffix}}",
+                  "type": "text"
+                },
+                {
+                  "key": "courses[0][idnumber]",
+                  "value": "VCOSTAEDU-TEST-R-{{suffix}}",
+                  "type": "text"
+                },
+                {
+                  "key": "courses[0][summary]",
+                  "value": "Test course {{suffix}}, renamed.",
+                  "type": "text"
+                }
+              ]
+            },
+            "url": {
+              "raw": "{{baseurl}}/webservice/rest/server.php",
+              "host": [
+                "{{baseurl}}"
+              ],
+              "path": [
+                "webservice",
+                "rest",
+                "server.php"
+              ]
+            },
+            "description": "Changes the full name, the short name, the id number and the summary, as when the course is corrected in the academic system. Expected: no warning.\n\nFunction: `core_course_update_courses`."
+          },
+          "response": []
+        },
+        {
+          "name": "Check: the course has the new names",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const raw = pm.response.text().trim();",
+                  "let d = null;",
+                  "try { d = JSON.parse(raw); } catch (e) { d = undefined; }",
+                  "const isError = (x) => x !== null && typeof x === 'object' && !Array.isArray(x) && typeof x.errorcode === 'string';",
+                  "",
+                  "pm.test('Moodle answers with JSON and no error', () => {",
+                  "    pm.expect(d, 'response is not JSON: ' + raw.slice(0, 200)).to.not.equal(undefined);",
+                  "    pm.expect(isError(d), raw.slice(0, 300)).to.be.false;",
+                  "});",
+                  "",
+                  "const sfx = pm.variables.get('suffix');",
+                  "pm.test('The same course, with the new names', () => {",
+                  "    pm.expect(d.courses).to.be.an('array').with.lengthOf(1);",
+                  "    const c = d.courses[0];",
+                  "    pm.expect(c.id).to.equal(Number(pm.variables.get('courseid')));",
+                  "    pm.expect(c.fullname).to.equal('VCOSTAEDU-TEST course ' + sfx + ' renamed');",
+                  "    pm.expect(c.shortname).to.equal('VCOSTAEDU-TEST-R-' + sfx);",
+                  "    pm.expect(c.summary).to.include('renamed');",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/x-www-form-urlencoded"
+              }
+            ],
+            "body": {
+              "mode": "urlencoded",
+              "urlencoded": [
+                {
+                  "key": "wstoken",
+                  "value": "{{token}}",
+                  "type": "text"
+                },
+                {
+                  "key": "wsfunction",
+                  "value": "core_course_get_courses_by_field",
+                  "type": "text"
+                },
+                {
+                  "key": "moodlewsrestformat",
+                  "value": "json",
+                  "type": "text"
+                },
+                {
+                  "key": "field",
+                  "value": "idnumber",
+                  "type": "text"
+                },
+                {
+                  "key": "value",
+                  "value": "VCOSTAEDU-TEST-R-{{suffix}}",
+                  "type": "text"
+                }
+              ]
+            },
+            "url": {
+              "raw": "{{baseurl}}/webservice/rest/server.php",
+              "host": [
+                "{{baseurl}}"
+              ],
+              "path": [
+                "webservice",
+                "rest",
+                "server.php"
+              ]
+            },
+            "description": "Reads the course by its new id number. Expected: the new full name, short name and summary.\n\nFunction: `core_course_get_courses_by_field`."
+          },
+          "response": []
+        },
+        {
+          "name": "Create a second category",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const raw = pm.response.text().trim();",
+                  "let d = null;",
+                  "try { d = JSON.parse(raw); } catch (e) { d = undefined; }",
+                  "const isError = (x) => x !== null && typeof x === 'object' && !Array.isArray(x) && typeof x.errorcode === 'string';",
+                  "",
+                  "pm.test('Moodle answers with JSON and no error', () => {",
+                  "    pm.expect(d, 'response is not JSON: ' + raw.slice(0, 200)).to.not.equal(undefined);",
+                  "    pm.expect(isError(d), raw.slice(0, 300)).to.be.false;",
+                  "});",
+                  "",
+                  "pm.test('The category was created inside the first one', () => {",
+                  "    pm.expect(d).to.be.an('array').with.lengthOf(1);",
+                  "    pm.collectionVariables.set('category2id', d[0].id);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/x-www-form-urlencoded"
+              }
+            ],
+            "body": {
+              "mode": "urlencoded",
+              "urlencoded": [
+                {
+                  "key": "wstoken",
+                  "value": "{{token}}",
+                  "type": "text"
+                },
+                {
+                  "key": "wsfunction",
+                  "value": "core_course_create_categories",
+                  "type": "text"
+                },
+                {
+                  "key": "moodlewsrestformat",
+                  "value": "json",
+                  "type": "text"
+                },
+                {
+                  "key": "categories[0][name]",
+                  "value": "VCOSTAEDU-TEST {{suffix}} other",
+                  "type": "text"
+                },
+                {
+                  "key": "categories[0][idnumber]",
+                  "value": "VCOSTAEDU-TEST-CAT2-{{suffix}}",
+                  "type": "text"
+                },
+                {
+                  "key": "categories[0][parent]",
+                  "value": "{{categoryid}}",
+                  "type": "text"
+                }
+              ]
+            },
+            "url": {
+              "raw": "{{baseurl}}/webservice/rest/server.php",
+              "host": [
+                "{{baseurl}}"
+              ],
+              "path": [
+                "webservice",
+                "rest",
+                "server.php"
+              ]
+            },
+            "description": "Creates `VCOSTAEDU-TEST <suffix> other`, inside the first test category. Expected: its id.\n\nFunction: `core_course_create_categories`."
+          },
+          "response": []
+        },
+        {
+          "name": "Move the course to the second category",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const raw = pm.response.text().trim();",
+                  "let d = null;",
+                  "try { d = JSON.parse(raw); } catch (e) { d = undefined; }",
+                  "const isError = (x) => x !== null && typeof x === 'object' && !Array.isArray(x) && typeof x.errorcode === 'string';",
+                  "",
+                  "pm.test('Moodle answers with JSON and no error', () => {",
+                  "    pm.expect(d, 'response is not JSON: ' + raw.slice(0, 200)).to.not.equal(undefined);",
+                  "    pm.expect(isError(d), raw.slice(0, 300)).to.be.false;",
+                  "});",
+                  "",
+                  "pm.test('Updated without warnings', () => {",
+                  "    pm.expect(d.warnings, JSON.stringify(d.warnings)).to.be.an('array').that.is.empty;",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/x-www-form-urlencoded"
+              }
+            ],
+            "body": {
+              "mode": "urlencoded",
+              "urlencoded": [
+                {
+                  "key": "wstoken",
+                  "value": "{{token}}",
+                  "type": "text"
+                },
+                {
+                  "key": "wsfunction",
+                  "value": "core_course_update_courses",
+                  "type": "text"
+                },
+                {
+                  "key": "moodlewsrestformat",
+                  "value": "json",
+                  "type": "text"
+                },
+                {
+                  "key": "courses[0][id]",
+                  "value": "{{courseid}}",
+                  "type": "text"
+                },
+                {
+                  "key": "courses[0][categoryid]",
+                  "value": "{{category2id}}",
+                  "type": "text"
+                }
+              ]
+            },
+            "url": {
+              "raw": "{{baseurl}}/webservice/rest/server.php",
+              "host": [
+                "{{baseurl}}"
+              ],
+              "path": [
+                "webservice",
+                "rest",
+                "server.php"
+              ]
+            },
+            "description": "Changes the category of the course. Expected: no warning.\n\nFunction: `core_course_update_courses`."
+          },
+          "response": []
+        },
+        {
+          "name": "Check: the course is in the second category",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const raw = pm.response.text().trim();",
+                  "let d = null;",
+                  "try { d = JSON.parse(raw); } catch (e) { d = undefined; }",
+                  "const isError = (x) => x !== null && typeof x === 'object' && !Array.isArray(x) && typeof x.errorcode === 'string';",
+                  "",
+                  "pm.test('Moodle answers with JSON and no error', () => {",
+                  "    pm.expect(d, 'response is not JSON: ' + raw.slice(0, 200)).to.not.equal(undefined);",
+                  "    pm.expect(isError(d), raw.slice(0, 300)).to.be.false;",
+                  "});",
+                  "",
+                  "pm.test('The course moved', () => {",
+                  "    pm.expect(d.courses).to.be.an('array').with.lengthOf(1);",
+                  "    pm.expect(d.courses[0].categoryid).to.equal(Number(pm.variables.get('category2id')));",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/x-www-form-urlencoded"
+              }
+            ],
+            "body": {
+              "mode": "urlencoded",
+              "urlencoded": [
+                {
+                  "key": "wstoken",
+                  "value": "{{token}}",
+                  "type": "text"
+                },
+                {
+                  "key": "wsfunction",
+                  "value": "core_course_get_courses_by_field",
+                  "type": "text"
+                },
+                {
+                  "key": "moodlewsrestformat",
+                  "value": "json",
+                  "type": "text"
+                },
+                {
+                  "key": "field",
+                  "value": "id",
+                  "type": "text"
+                },
+                {
+                  "key": "value",
+                  "value": "{{courseid}}",
+                  "type": "text"
+                }
+              ]
+            },
+            "url": {
+              "raw": "{{baseurl}}/webservice/rest/server.php",
+              "host": [
+                "{{baseurl}}"
+              ],
+              "path": [
+                "webservice",
+                "rest",
+                "server.php"
+              ]
+            },
+            "description": "Reads the course by `id`. Expected: the second category.\n\nFunction: `core_course_get_courses_by_field`."
+          },
+          "response": []
+        },
+        {
+          "name": "Create a teacher and a student",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const raw = pm.response.text().trim();",
+                  "let d = null;",
+                  "try { d = JSON.parse(raw); } catch (e) { d = undefined; }",
+                  "const isError = (x) => x !== null && typeof x === 'object' && !Array.isArray(x) && typeof x.errorcode === 'string';",
+                  "",
+                  "pm.test('Moodle answers with JSON and no error', () => {",
+                  "    pm.expect(d, 'response is not JSON: ' + raw.slice(0, 200)).to.not.equal(undefined);",
+                  "    pm.expect(isError(d), raw.slice(0, 300)).to.be.false;",
+                  "});",
+                  "",
+                  "pm.test('Both users were created', () => {",
+                  "    pm.expect(d).to.be.an('array').with.lengthOf(2);",
+                  "    pm.expect(d[0].username).to.equal(pm.variables.get('teacherusername'));",
+                  "    pm.expect(d[1].username).to.equal(pm.variables.get('studentusername'));",
+                  "    pm.collectionVariables.set('teacherid', d[0].id);",
+                  "    pm.collectionVariables.set('studentid', d[1].id);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/x-www-form-urlencoded"
+              }
+            ],
+            "body": {
+              "mode": "urlencoded",
+              "urlencoded": [
+                {
+                  "key": "wstoken",
+                  "value": "{{token}}",
+                  "type": "text"
+                },
+                {
+                  "key": "wsfunction",
+                  "value": "core_user_create_users",
+                  "type": "text"
+                },
+                {
+                  "key": "moodlewsrestformat",
+                  "value": "json",
+                  "type": "text"
+                },
+                {
+                  "key": "users[0][username]",
+                  "value": "{{teacherusername}}",
+                  "type": "text"
+                },
+                {
+                  "key": "users[0][firstname]",
+                  "value": "Teacher",
+                  "type": "text"
+                },
+                {
+                  "key": "users[0][lastname]",
+                  "value": "Test {{suffix}}",
+                  "type": "text"
+                },
+                {
+                  "key": "users[0][email]",
+                  "value": "teacher.{{suffix}}@example.com",
+                  "type": "text"
+                },
+                {
+                  "key": "users[0][createpassword]",
+                  "value": "1",
+                  "type": "text"
+                },
+                {
+                  "key": "users[1][username]",
+                  "value": "{{studentusername}}",
+                  "type": "text"
+                },
+                {
+                  "key": "users[1][firstname]",
+                  "value": "Student",
+                  "type": "text"
+                },
+                {
+                  "key": "users[1][lastname]",
+                  "value": "Test {{suffix}}",
+                  "type": "text"
+                },
+                {
+                  "key": "users[1][email]",
+                  "value": "student.{{suffix}}@example.com",
+                  "type": "text"
+                },
+                {
+                  "key": "users[1][idnumber]",
+                  "value": "VCOSTAEDU-TEST-ST-{{suffix}}",
+                  "type": "text"
+                },
+                {
+                  "key": "users[1][createpassword]",
+                  "value": "1",
+                  "type": "text"
+                }
+              ]
+            },
+            "url": {
+              "raw": "{{baseurl}}/webservice/rest/server.php",
+              "host": [
+                "{{baseurl}}"
+              ],
+              "path": [
+                "webservice",
+                "rest",
+                "server.php"
+              ]
+            },
+            "description": "Creates two manual accounts, `vcostaedutest.teacher.<suffix>` and `vcostaedutest.student.<suffix>` (with an id number), with addresses in the reserved domain example.com. Moodle creates the passwords (`createpassword`); nobody needs them here. Expected: two ids.\n\nFunction: `core_user_create_users`."
+          },
+          "response": []
+        },
+        {
+          "name": "Find the student by username",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const raw = pm.response.text().trim();",
+                  "let d = null;",
+                  "try { d = JSON.parse(raw); } catch (e) { d = undefined; }",
+                  "const isError = (x) => x !== null && typeof x === 'object' && !Array.isArray(x) && typeof x.errorcode === 'string';",
+                  "",
+                  "pm.test('Moodle answers with JSON and no error', () => {",
+                  "    pm.expect(d, 'response is not JSON: ' + raw.slice(0, 200)).to.not.equal(undefined);",
+                  "    pm.expect(isError(d), raw.slice(0, 300)).to.be.false;",
+                  "});",
+                  "",
+                  "pm.test('The student is found', () => {",
+                  "    pm.expect(d).to.be.an('array').with.lengthOf(1);",
+                  "    pm.expect(d[0].id).to.equal(Number(pm.variables.get('studentid')));",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/x-www-form-urlencoded"
+              }
+            ],
+            "body": {
+              "mode": "urlencoded",
+              "urlencoded": [
+                {
+                  "key": "wstoken",
+                  "value": "{{token}}",
+                  "type": "text"
+                },
+                {
+                  "key": "wsfunction",
+                  "value": "core_user_get_users_by_field",
+                  "type": "text"
+                },
+                {
+                  "key": "moodlewsrestformat",
+                  "value": "json",
+                  "type": "text"
+                },
+                {
+                  "key": "field",
+                  "value": "username",
+                  "type": "text"
+                },
+                {
+                  "key": "values[0]",
+                  "value": "{{studentusername}}",
+                  "type": "text"
+                }
+              ]
+            },
+            "url": {
+              "raw": "{{baseurl}}/webservice/rest/server.php",
+              "host": [
+                "{{baseurl}}"
+              ],
+              "path": [
+                "webservice",
+                "rest",
+                "server.php"
+              ]
+            },
+            "description": "Reads the student by `username`. Expected: the id just created.\n\nFunction: `core_user_get_users_by_field`."
+          },
+          "response": []
+        },
+        {
+          "name": "Find the student by id number",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const raw = pm.response.text().trim();",
+                  "let d = null;",
+                  "try { d = JSON.parse(raw); } catch (e) { d = undefined; }",
+                  "const isError = (x) => x !== null && typeof x === 'object' && !Array.isArray(x) && typeof x.errorcode === 'string';",
+                  "",
+                  "pm.test('Moodle answers with JSON and no error', () => {",
+                  "    pm.expect(d, 'response is not JSON: ' + raw.slice(0, 200)).to.not.equal(undefined);",
+                  "    pm.expect(isError(d), raw.slice(0, 300)).to.be.false;",
+                  "});",
+                  "",
+                  "pm.test('The student is found by id number', () => {",
+                  "    pm.expect(d).to.be.an('array').with.lengthOf(1);",
+                  "    pm.expect(d[0].id).to.equal(Number(pm.variables.get('studentid')));",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/x-www-form-urlencoded"
+              }
+            ],
+            "body": {
+              "mode": "urlencoded",
+              "urlencoded": [
+                {
+                  "key": "wstoken",
+                  "value": "{{token}}",
+                  "type": "text"
+                },
+                {
+                  "key": "wsfunction",
+                  "value": "core_user_get_users_by_field",
+                  "type": "text"
+                },
+                {
+                  "key": "moodlewsrestformat",
+                  "value": "json",
+                  "type": "text"
+                },
+                {
+                  "key": "field",
+                  "value": "idnumber",
+                  "type": "text"
+                },
+                {
+                  "key": "values[0]",
+                  "value": "VCOSTAEDU-TEST-ST-{{suffix}}",
+                  "type": "text"
+                }
+              ]
+            },
+            "url": {
+              "raw": "{{baseurl}}/webservice/rest/server.php",
+              "host": [
+                "{{baseurl}}"
+              ],
+              "path": [
+                "webservice",
+                "rest",
+                "server.php"
+              ]
+            },
+            "description": "Reads the student by `idnumber`, the code the academic system keeps for the person. Expected: the student.\n\nFunction: `core_user_get_users_by_field`."
+          },
+          "response": []
+        },
+        {
+          "name": "Find the student by e-mail",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const raw = pm.response.text().trim();",
+                  "let d = null;",
+                  "try { d = JSON.parse(raw); } catch (e) { d = undefined; }",
+                  "const isError = (x) => x !== null && typeof x === 'object' && !Array.isArray(x) && typeof x.errorcode === 'string';",
+                  "",
+                  "pm.test('Moodle answers with JSON and no error', () => {",
+                  "    pm.expect(d, 'response is not JSON: ' + raw.slice(0, 200)).to.not.equal(undefined);",
+                  "    pm.expect(isError(d), raw.slice(0, 300)).to.be.false;",
+                  "});",
+                  "",
+                  "pm.test('One answer per address, in the order sent', () => {",
+                  "    pm.expect(d).to.be.an('array').with.lengthOf(2);",
+                  "    pm.expect(d[0].email).to.equal('  STUDENT.' + pm.variables.get('suffix') + '@EXAMPLE.COM ');",
+                  "    pm.expect(d[1].email).to.equal('nobody.' + pm.variables.get('suffix') + '@example.com');",
+                  "});",
+                  "pm.test('The student is found by e-mail; nobody for the other address', () => {",
+                  "    pm.expect(d[0].userids).to.deep.equal([Number(pm.variables.get('studentid'))]);",
+                  "    pm.expect(d[1].userids).to.deep.equal([]);",
+                  "});",
+                  "pm.test('Only the address and the ids come back', () => {",
+                  "    d.forEach((item) => pm.expect(Object.keys(item).sort()).to.deep.equal(['email', 'userids']));",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/x-www-form-urlencoded"
+              }
+            ],
+            "body": {
+              "mode": "urlencoded",
+              "urlencoded": [
+                {
+                  "key": "wstoken",
+                  "value": "{{token}}",
+                  "type": "text"
+                },
+                {
+                  "key": "wsfunction",
+                  "value": "local_vcostaedu_find_users_by_email",
+                  "type": "text"
+                },
+                {
+                  "key": "moodlewsrestformat",
+                  "value": "json",
+                  "type": "text"
+                },
+                {
+                  "key": "emails[0]",
+                  "value": "  STUDENT.{{suffix}}@EXAMPLE.COM ",
+                  "type": "text"
+                },
+                {
+                  "key": "emails[1]",
+                  "value": "nobody.{{suffix}}@example.com",
+                  "type": "text"
+                }
+              ]
+            },
+            "url": {
+              "raw": "{{baseurl}}/webservice/rest/server.php",
+              "host": [
+                "{{baseurl}}"
+              ],
+              "path": [
+                "webservice",
+                "rest",
+                "server.php"
+              ]
+            },
+            "description": "The function of this plugin for accounts that already exist: it answers, for each e-mail address sent, only the ids of the accounts that have it. Case and spaces at the ends are ignored. Here the student address in capitals with spaces, and an address nobody has. Expected: the id of the student for the first, an empty list for the second, and no other data of the user.\n\nFunction: `local_vcostaedu_find_users_by_email`."
+          },
+          "response": []
+        },
+        {
+          "name": "Search the student by name",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const raw = pm.response.text().trim();",
+                  "let d = null;",
+                  "try { d = JSON.parse(raw); } catch (e) { d = undefined; }",
+                  "const isError = (x) => x !== null && typeof x === 'object' && !Array.isArray(x) && typeof x.errorcode === 'string';",
+                  "",
+                  "pm.test('Moodle answers with JSON and no error', () => {",
+                  "    pm.expect(d, 'response is not JSON: ' + raw.slice(0, 200)).to.not.equal(undefined);",
+                  "    pm.expect(isError(d), raw.slice(0, 300)).to.be.false;",
+                  "});",
+                  "",
+                  "pm.test('Exactly the student is found', () => {",
+                  "    pm.expect(d.users).to.be.an('array').with.lengthOf(1);",
+                  "    pm.expect(d.users[0].id).to.equal(Number(pm.variables.get('studentid')));",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/x-www-form-urlencoded"
+              }
+            ],
+            "body": {
+              "mode": "urlencoded",
+              "urlencoded": [
+                {
+                  "key": "wstoken",
+                  "value": "{{token}}",
+                  "type": "text"
+                },
+                {
+                  "key": "wsfunction",
+                  "value": "core_user_get_users",
+                  "type": "text"
+                },
+                {
+                  "key": "moodlewsrestformat",
+                  "value": "json",
+                  "type": "text"
+                },
+                {
+                  "key": "criteria[0][key]",
+                  "value": "firstname",
+                  "type": "text"
+                },
+                {
+                  "key": "criteria[0][value]",
+                  "value": "Student",
+                  "type": "text"
+                },
+                {
+                  "key": "criteria[1][key]",
+                  "value": "lastname",
+                  "type": "text"
+                },
+                {
+                  "key": "criteria[1][value]",
+                  "value": "Test {{suffix}}",
+                  "type": "text"
+                }
+              ]
+            },
+            "url": {
+              "raw": "{{baseurl}}/webservice/rest/server.php",
+              "host": [
+                "{{baseurl}}"
+              ],
+              "path": [
+                "webservice",
+                "rest",
+                "server.php"
+              ]
+            },
+            "description": "Searches users by first name and last name. Expected: the student, and only the student.\n\nFunction: `core_user_get_users`."
+          },
+          "response": []
+        },
+        {
+          "name": "Update the student",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const raw = pm.response.text().trim();",
+                  "let d = null;",
+                  "try { d = JSON.parse(raw); } catch (e) { d = undefined; }",
+                  "const isError = (x) => x !== null && typeof x === 'object' && !Array.isArray(x) && typeof x.errorcode === 'string';",
+                  "",
+                  "pm.test('Moodle answers with JSON and no error', () => {",
+                  "    pm.expect(d, 'response is not JSON: ' + raw.slice(0, 200)).to.not.equal(undefined);",
+                  "    pm.expect(isError(d), raw.slice(0, 300)).to.be.false;",
+                  "});",
+                  "",
+                  "pm.test('No warnings', () => {",
+                  "    pm.expect(d === null || (Array.isArray(d.warnings) && d.warnings.length === 0), raw).to.be.true;",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/x-www-form-urlencoded"
+              }
+            ],
+            "body": {
+              "mode": "urlencoded",
+              "urlencoded": [
+                {
+                  "key": "wstoken",
+                  "value": "{{token}}",
+                  "type": "text"
+                },
+                {
+                  "key": "wsfunction",
+                  "value": "core_user_update_users",
+                  "type": "text"
+                },
+                {
+                  "key": "moodlewsrestformat",
+                  "value": "json",
+                  "type": "text"
+                },
+                {
+                  "key": "users[0][id]",
+                  "value": "{{studentid}}",
+                  "type": "text"
+                },
+                {
+                  "key": "users[0][lastname]",
+                  "value": "Test {{suffix}} updated",
+                  "type": "text"
+                }
+              ]
+            },
+            "url": {
+              "raw": "{{baseurl}}/webservice/rest/server.php",
+              "host": [
+                "{{baseurl}}"
+              ],
+              "path": [
+                "webservice",
+                "rest",
+                "server.php"
+              ]
+            },
+            "description": "Changes the student last name. Expected: no error.\n\nFunction: `core_user_update_users`."
+          },
+          "response": []
+        },
+        {
+          "name": "Read the student back",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const raw = pm.response.text().trim();",
+                  "let d = null;",
+                  "try { d = JSON.parse(raw); } catch (e) { d = undefined; }",
+                  "const isError = (x) => x !== null && typeof x === 'object' && !Array.isArray(x) && typeof x.errorcode === 'string';",
+                  "",
+                  "pm.test('Moodle answers with JSON and no error', () => {",
+                  "    pm.expect(d, 'response is not JSON: ' + raw.slice(0, 200)).to.not.equal(undefined);",
+                  "    pm.expect(isError(d), raw.slice(0, 300)).to.be.false;",
+                  "});",
+                  "",
+                  "pm.test('The last name was saved', () => {",
+                  "    pm.expect(d).to.be.an('array').with.lengthOf(1);",
+                  "    pm.expect(d[0].lastname).to.equal('Test ' + pm.variables.get('suffix') + ' updated');",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/x-www-form-urlencoded"
+              }
+            ],
+            "body": {
+              "mode": "urlencoded",
+              "urlencoded": [
+                {
+                  "key": "wstoken",
+                  "value": "{{token}}",
+                  "type": "text"
+                },
+                {
+                  "key": "wsfunction",
+                  "value": "core_user_get_users_by_field",
+                  "type": "text"
+                },
+                {
+                  "key": "moodlewsrestformat",
+                  "value": "json",
+                  "type": "text"
+                },
+                {
+                  "key": "field",
+                  "value": "id",
+                  "type": "text"
+                },
+                {
+                  "key": "values[0]",
+                  "value": "{{studentid}}",
+                  "type": "text"
+                }
+              ]
+            },
+            "url": {
+              "raw": "{{baseurl}}/webservice/rest/server.php",
+              "host": [
+                "{{baseurl}}"
+              ],
+              "path": [
+                "webservice",
+                "rest",
+                "server.php"
+              ]
+            },
+            "description": "Reads the student by `id`. Expected: the new last name.\n\nFunction: `core_user_get_users_by_field`."
+          },
+          "response": []
+        },
+        {
+          "name": "Enrol the teacher",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const raw = pm.response.text().trim();",
+                  "let d = null;",
+                  "try { d = JSON.parse(raw); } catch (e) { d = undefined; }",
+                  "const isError = (x) => x !== null && typeof x === 'object' && !Array.isArray(x) && typeof x.errorcode === 'string';",
+                  "",
+                  "// Known Moodle behaviour: in a course with a teacher, every manual enrolment call sends the",
+                  "// course welcome message. When the site cannot send e-mail, Moodle saves the change and still",
+                  "// answers \"Message was not sent.\". That answer is a warning, not a failure; the next request",
+                  "// checks that the change was saved.",
+                  "const emailWarning = isError(d) && /Message was not sent/.test(String(d.message) + ' ' + String(d.errorcode));",
+                  "pm.test('Saved (no error, or only the e-mail warning \"Message was not sent.\")', () => {",
+                  "    pm.expect(d === null || emailWarning, raw.slice(0, 300)).to.be.true;",
+                  "});",
+                  "if (emailWarning) {",
+                  "    console.warn('Moodle could not send the welcome e-mail. The change is saved; the next request checks it.');",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/x-www-form-urlencoded"
+              }
+            ],
+            "body": {
+              "mode": "urlencoded",
+              "urlencoded": [
+                {
+                  "key": "wstoken",
+                  "value": "{{token}}",
+                  "type": "text"
+                },
+                {
+                  "key": "wsfunction",
+                  "value": "enrol_manual_enrol_users",
+                  "type": "text"
+                },
+                {
+                  "key": "moodlewsrestformat",
+                  "value": "json",
+                  "type": "text"
+                },
+                {
+                  "key": "enrolments[0][roleid]",
+                  "value": "3",
+                  "type": "text"
+                },
+                {
+                  "key": "enrolments[0][userid]",
+                  "value": "{{teacherid}}",
+                  "type": "text"
+                },
+                {
+                  "key": "enrolments[0][courseid]",
+                  "value": "{{courseid}}",
+                  "type": "text"
+                }
+              ]
+            },
+            "url": {
+              "raw": "{{baseurl}}/webservice/rest/server.php",
+              "host": [
+                "{{baseurl}}"
+              ],
+              "path": [
+                "webservice",
+                "rest",
+                "server.php"
+              ]
+            },
+            "description": "Enrols the teacher in the course with the role \"Teacher\" (role id 3 on a standard installation). Expected: no error.\n\nFunction: `enrol_manual_enrol_users`."
+          },
+          "response": []
+        },
+        {
+          "name": "Enrol the student",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const raw = pm.response.text().trim();",
+                  "let d = null;",
+                  "try { d = JSON.parse(raw); } catch (e) { d = undefined; }",
+                  "const isError = (x) => x !== null && typeof x === 'object' && !Array.isArray(x) && typeof x.errorcode === 'string';",
+                  "",
+                  "// Known Moodle behaviour: in a course with a teacher, every manual enrolment call sends the",
+                  "// course welcome message. When the site cannot send e-mail, Moodle saves the change and still",
+                  "// answers \"Message was not sent.\". That answer is a warning, not a failure; the next request",
+                  "// checks that the change was saved.",
+                  "const emailWarning = isError(d) && /Message was not sent/.test(String(d.message) + ' ' + String(d.errorcode));",
+                  "pm.test('Saved (no error, or only the e-mail warning \"Message was not sent.\")', () => {",
+                  "    pm.expect(d === null || emailWarning, raw.slice(0, 300)).to.be.true;",
+                  "});",
+                  "if (emailWarning) {",
+                  "    console.warn('Moodle could not send the welcome e-mail. The change is saved; the next request checks it.');",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/x-www-form-urlencoded"
+              }
+            ],
+            "body": {
+              "mode": "urlencoded",
+              "urlencoded": [
+                {
+                  "key": "wstoken",
+                  "value": "{{token}}",
+                  "type": "text"
+                },
+                {
+                  "key": "wsfunction",
+                  "value": "enrol_manual_enrol_users",
+                  "type": "text"
+                },
+                {
+                  "key": "moodlewsrestformat",
+                  "value": "json",
+                  "type": "text"
+                },
+                {
+                  "key": "enrolments[0][roleid]",
+                  "value": "5",
+                  "type": "text"
+                },
+                {
+                  "key": "enrolments[0][userid]",
+                  "value": "{{studentid}}",
+                  "type": "text"
+                },
+                {
+                  "key": "enrolments[0][courseid]",
+                  "value": "{{courseid}}",
+                  "type": "text"
+                }
+              ]
+            },
+            "url": {
+              "raw": "{{baseurl}}/webservice/rest/server.php",
+              "host": [
+                "{{baseurl}}"
+              ],
+              "path": [
+                "webservice",
+                "rest",
+                "server.php"
+              ]
+            },
+            "description": "Enrols the student with the role \"Student\" (role id 5). The course now has a teacher, so Moodle sends the welcome message; on a site without working e-mail the answer is \"Message was not sent.\" and the enrolment is saved anyway. The next request checks it.\n\nFunction: `enrol_manual_enrol_users`."
+          },
+          "response": []
+        },
+        {
+          "name": "List the participants of the course",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const raw = pm.response.text().trim();",
+                  "let d = null;",
+                  "try { d = JSON.parse(raw); } catch (e) { d = undefined; }",
+                  "const isError = (x) => x !== null && typeof x === 'object' && !Array.isArray(x) && typeof x.errorcode === 'string';",
+                  "",
+                  "pm.test('Moodle answers with JSON and no error', () => {",
+                  "    pm.expect(d, 'response is not JSON: ' + raw.slice(0, 200)).to.not.equal(undefined);",
+                  "    pm.expect(isError(d), raw.slice(0, 300)).to.be.false;",
+                  "});",
+                  "",
+                  "const roles = (id) => ((d.find((u) => u.id === Number(id)) || {}).roles || []).map((r) => r.shortname);",
+                  "pm.test('The teacher is enrolled as editingteacher', () => {",
+                  "    pm.expect(roles(pm.variables.get('teacherid'))).to.include('editingteacher');",
+                  "});",
+                  "pm.test('The student is enrolled as student', () => {",
+                  "    pm.expect(roles(pm.variables.get('studentid'))).to.include('student');",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/x-www-form-urlencoded"
+              }
+            ],
+            "body": {
+              "mode": "urlencoded",
+              "urlencoded": [
+                {
+                  "key": "wstoken",
+                  "value": "{{token}}",
+                  "type": "text"
+                },
+                {
+                  "key": "wsfunction",
+                  "value": "core_enrol_get_enrolled_users",
+                  "type": "text"
+                },
+                {
+                  "key": "moodlewsrestformat",
+                  "value": "json",
+                  "type": "text"
+                },
+                {
+                  "key": "courseid",
+                  "value": "{{courseid}}",
+                  "type": "text"
+                }
+              ]
+            },
+            "url": {
+              "raw": "{{baseurl}}/webservice/rest/server.php",
+              "host": [
+                "{{baseurl}}"
+              ],
+              "path": [
+                "webservice",
+                "rest",
+                "server.php"
+              ]
+            },
+            "description": "Lists the users enrolled in the course with their roles. Expected: the teacher with \"editingteacher\" and the student with \"student\".\n\nFunction: `core_enrol_get_enrolled_users`."
+          },
+          "response": []
+        },
+        {
+          "name": "Courses of the student",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const raw = pm.response.text().trim();",
+                  "let d = null;",
+                  "try { d = JSON.parse(raw); } catch (e) { d = undefined; }",
+                  "const isError = (x) => x !== null && typeof x === 'object' && !Array.isArray(x) && typeof x.errorcode === 'string';",
+                  "",
+                  "pm.test('Moodle answers with JSON and no error', () => {",
+                  "    pm.expect(d, 'response is not JSON: ' + raw.slice(0, 200)).to.not.equal(undefined);",
+                  "    pm.expect(isError(d), raw.slice(0, 300)).to.be.false;",
+                  "});",
+                  "",
+                  "pm.test('The test course is listed', () => {",
+                  "    pm.expect(d.map((c) => c.id)).to.include(Number(pm.variables.get('courseid')));",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/x-www-form-urlencoded"
+              }
+            ],
+            "body": {
+              "mode": "urlencoded",
+              "urlencoded": [
+                {
+                  "key": "wstoken",
+                  "value": "{{token}}",
+                  "type": "text"
+                },
+                {
+                  "key": "wsfunction",
+                  "value": "core_enrol_get_users_courses",
+                  "type": "text"
+                },
+                {
+                  "key": "moodlewsrestformat",
+                  "value": "json",
+                  "type": "text"
+                },
+                {
+                  "key": "userid",
+                  "value": "{{studentid}}",
+                  "type": "text"
+                }
+              ]
+            },
+            "url": {
+              "raw": "{{baseurl}}/webservice/rest/server.php",
+              "host": [
+                "{{baseurl}}"
+              ],
+              "path": [
+                "webservice",
+                "rest",
+                "server.php"
+              ]
+            },
+            "description": "Lists the courses the student is enrolled in. Expected: the test course.\n\nFunction: `core_enrol_get_users_courses`."
+          },
+          "response": []
+        },
+        {
+          "name": "Grade items of the student",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const raw = pm.response.text().trim();",
+                  "let d = null;",
+                  "try { d = JSON.parse(raw); } catch (e) { d = undefined; }",
+                  "const isError = (x) => x !== null && typeof x === 'object' && !Array.isArray(x) && typeof x.errorcode === 'string';",
+                  "",
+                  "pm.test('Moodle answers with JSON and no error', () => {",
+                  "    pm.expect(d, 'response is not JSON: ' + raw.slice(0, 200)).to.not.equal(undefined);",
+                  "    pm.expect(isError(d), raw.slice(0, 300)).to.be.false;",
+                  "});",
+                  "",
+                  "pm.test('Grades of the student in the course', () => {",
+                  "    pm.expect(d.usergrades).to.be.an('array').with.lengthOf(1);",
+                  "    pm.expect(d.usergrades[0].userid).to.equal(Number(pm.variables.get('studentid')));",
+                  "    pm.expect(d.usergrades[0].courseid).to.equal(Number(pm.variables.get('courseid')));",
+                  "    pm.expect(d.usergrades[0].gradeitems).to.be.an('array').that.is.not.empty;",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/x-www-form-urlencoded"
+              }
+            ],
+            "body": {
+              "mode": "urlencoded",
+              "urlencoded": [
+                {
+                  "key": "wstoken",
+                  "value": "{{token}}",
+                  "type": "text"
+                },
+                {
+                  "key": "wsfunction",
+                  "value": "gradereport_user_get_grade_items",
+                  "type": "text"
+                },
+                {
+                  "key": "moodlewsrestformat",
+                  "value": "json",
+                  "type": "text"
+                },
+                {
+                  "key": "courseid",
+                  "value": "{{courseid}}",
+                  "type": "text"
+                },
+                {
+                  "key": "userid",
+                  "value": "{{studentid}}",
+                  "type": "text"
+                }
+              ]
+            },
+            "url": {
+              "raw": "{{baseurl}}/webservice/rest/server.php",
+              "host": [
+                "{{baseurl}}"
+              ],
+              "path": [
+                "webservice",
+                "rest",
+                "server.php"
+              ]
+            },
+            "description": "Reads the grade items of the student in the course (a new course has only the course total). Expected: the grades of that student in that course.\n\nFunction: `gradereport_user_get_grade_items`."
+          },
+          "response": []
+        },
+        {
+          "name": "Ask for a login link for the student",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const raw = pm.response.text().trim();",
+                  "let d = null;",
+                  "try { d = JSON.parse(raw); } catch (e) { d = undefined; }",
+                  "const isError = (x) => x !== null && typeof x === 'object' && !Array.isArray(x) && typeof x.errorcode === 'string';",
+                  "",
+                  "pm.test('Moodle answers with JSON and no error', () => {",
+                  "    pm.expect(d, 'response is not JSON: ' + raw.slice(0, 200)).to.not.equal(undefined);",
+                  "    pm.expect(isError(d), raw.slice(0, 300)).to.be.false;",
+                  "});",
+                  "",
+                  "pm.test('A one-time login link', () => {",
+                  "    pm.expect(d.loginurl).to.match(/\\/local\\/vcostaedu\\/login\\.php\\?key=[0-9a-f]+/);",
+                  "});",
+                  "pm.test('It ends after a short time', () => {",
+                  "    const now = Math.floor(Date.now() / 1000);",
+                  "    pm.expect(d.validuntil).to.be.above(now - 5);",
+                  "    pm.expect(d.validuntil).to.be.at.most(now + 3600 + 5);",
+                  "});",
+                  "pm.test('The course address is kept as the return address', () => {",
+                  "    pm.expect(decodeURIComponent(d.loginurl)).to.include('/course/view.php?id=' + pm.variables.get('courseid'));",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/x-www-form-urlencoded"
+              }
+            ],
+            "body": {
+              "mode": "urlencoded",
+              "urlencoded": [
+                {
+                  "key": "wstoken",
+                  "value": "{{token}}",
+                  "type": "text"
+                },
+                {
+                  "key": "wsfunction",
+                  "value": "local_vcostaedu_request_login_url",
+                  "type": "text"
+                },
+                {
+                  "key": "moodlewsrestformat",
+                  "value": "json",
+                  "type": "text"
+                },
+                {
+                  "key": "username",
+                  "value": "{{studentusername}}",
+                  "type": "text"
+                },
+                {
+                  "key": "returnurl",
+                  "value": "/course/view.php?id={{courseid}}",
+                  "type": "text"
+                }
+              ]
+            },
+            "url": {
+              "raw": "{{baseurl}}/webservice/rest/server.php",
+              "host": [
+                "{{baseurl}}"
+              ],
+              "path": [
+                "webservice",
+                "rest",
+                "server.php"
+              ]
+            },
+            "description": "The function of this plugin. Asks for a one-time login link that opens the course after the login. Expected: a link to `local/vcostaedu/login.php` with a key, valid for a short time (60 seconds by default). The link is not opened here: opening it in a browser logs the student in, once.\n\nFunction: `local_vcostaedu_request_login_url`."
+          },
+          "response": []
+        },
+        {
+          "name": "Ask for a login link with an outside return address",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const raw = pm.response.text().trim();",
+                  "let d = null;",
+                  "try { d = JSON.parse(raw); } catch (e) { d = undefined; }",
+                  "const isError = (x) => x !== null && typeof x === 'object' && !Array.isArray(x) && typeof x.errorcode === 'string';",
+                  "",
+                  "pm.test('Moodle answers with JSON and no error', () => {",
+                  "    pm.expect(d, 'response is not JSON: ' + raw.slice(0, 200)).to.not.equal(undefined);",
+                  "    pm.expect(isError(d), raw.slice(0, 300)).to.be.false;",
+                  "});",
+                  "",
+                  "pm.test('A one-time login link', () => {",
+                  "    pm.expect(d.loginurl).to.match(/\\/local\\/vcostaedu\\/login\\.php\\?key=[0-9a-f]+/);",
+                  "});",
+                  "pm.test('The outside address is dropped', () => {",
+                  "    pm.expect(decodeURIComponent(d.loginurl)).to.not.include('other-site.example.org');",
+                  "    pm.expect(d.loginurl).to.not.include('returnurl');",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/x-www-form-urlencoded"
+              }
+            ],
+            "body": {
+              "mode": "urlencoded",
+              "urlencoded": [
+                {
+                  "key": "wstoken",
+                  "value": "{{token}}",
+                  "type": "text"
+                },
+                {
+                  "key": "wsfunction",
+                  "value": "local_vcostaedu_request_login_url",
+                  "type": "text"
+                },
+                {
+                  "key": "moodlewsrestformat",
+                  "value": "json",
+                  "type": "text"
+                },
+                {
+                  "key": "username",
+                  "value": "{{studentusername}}",
+                  "type": "text"
+                },
+                {
+                  "key": "returnurl",
+                  "value": "https://other-site.example.org/page",
+                  "type": "text"
+                }
+              ]
+            },
+            "url": {
+              "raw": "{{baseurl}}/webservice/rest/server.php",
+              "host": [
+                "{{baseurl}}"
+              ],
+              "path": [
+                "webservice",
+                "rest",
+                "server.php"
+              ]
+            },
+            "description": "Same call, with a return address on another site. Expected: a link that does not carry that address; after the login the student stays on this Moodle.\n\nFunction: `local_vcostaedu_request_login_url`."
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "3. Refusals",
+      "description": "One request for each refusal that the plugin can show with what the service itself can prepare, and a malformed e-mail address for the search by e-mail. The first two requests create three test accounts (`vcostaedutest.suspended.`, `vcostaedutest.nologin.`, `vcostaedutest.authoff.` with a suffix) and suspend one of them. Two refusals are not here because the service cannot create their state: `vcostaedu_userdeleted` (a deleted account that kept its username) and `vcostaedu_usernotconfirmed` (an unconfirmed account). docs/REVIEW.md lists them with the tests that cover them.",
+      "item": [
+        {
+          "name": "Prepare: create three test accounts",
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "// Own suffix, so that this folder can also run alone, many times.",
+                  "const rs = Date.now().toString(36) + Math.floor(Math.random() * 1296).toString(36).padStart(2, '0');",
+                  "pm.collectionVariables.set('rsuffix', rs);"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const raw = pm.response.text().trim();",
+                  "let d = null;",
+                  "try { d = JSON.parse(raw); } catch (e) { d = undefined; }",
+                  "const isError = (x) => x !== null && typeof x === 'object' && !Array.isArray(x) && typeof x.errorcode === 'string';",
+                  "",
+                  "pm.test('Moodle answers with JSON and no error', () => {",
+                  "    pm.expect(d, 'response is not JSON: ' + raw.slice(0, 200)).to.not.equal(undefined);",
+                  "    pm.expect(isError(d), raw.slice(0, 300)).to.be.false;",
+                  "});",
+                  "",
+                  "pm.test('Three accounts were created', () => {",
+                  "    pm.expect(d).to.be.an('array').with.lengthOf(3);",
+                  "    pm.collectionVariables.set('suspendedid', d[0].id);",
+                  "    pm.collectionVariables.set('nologinid', d[1].id);",
+                  "    pm.collectionVariables.set('authoffid', d[2].id);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/x-www-form-urlencoded"
+              }
+            ],
+            "body": {
+              "mode": "urlencoded",
+              "urlencoded": [
+                {
+                  "key": "wstoken",
+                  "value": "{{token}}",
+                  "type": "text"
+                },
+                {
+                  "key": "wsfunction",
+                  "value": "core_user_create_users",
+                  "type": "text"
+                },
+                {
+                  "key": "moodlewsrestformat",
+                  "value": "json",
+                  "type": "text"
+                },
+                {
+                  "key": "users[0][username]",
+                  "value": "vcostaedutest.suspended.{{rsuffix}}",
+                  "type": "text"
+                },
+                {
+                  "key": "users[0][firstname]",
+                  "value": "Suspended",
+                  "type": "text"
+                },
+                {
+                  "key": "users[0][lastname]",
+                  "value": "Test {{rsuffix}}",
+                  "type": "text"
+                },
+                {
+                  "key": "users[0][email]",
+                  "value": "suspended.{{rsuffix}}@example.com",
+                  "type": "text"
+                },
+                {
+                  "key": "users[0][createpassword]",
+                  "value": "1",
+                  "type": "text"
+                },
+                {
+                  "key": "users[1][username]",
+                  "value": "vcostaedutest.nologin.{{rsuffix}}",
+                  "type": "text"
+                },
+                {
+                  "key": "users[1][firstname]",
+                  "value": "Nologin",
+                  "type": "text"
+                },
+                {
+                  "key": "users[1][lastname]",
+                  "value": "Test {{rsuffix}}",
+                  "type": "text"
+                },
+                {
+                  "key": "users[1][email]",
+                  "value": "nologin.{{rsuffix}}@example.com",
+                  "type": "text"
+                },
+                {
+                  "key": "users[1][createpassword]",
+                  "value": "1",
+                  "type": "text"
+                },
+                {
+                  "key": "users[1][auth]",
+                  "value": "nologin",
+                  "type": "text"
+                },
+                {
+                  "key": "users[2][username]",
+                  "value": "vcostaedutest.authoff.{{rsuffix}}",
+                  "type": "text"
+                },
+                {
+                  "key": "users[2][firstname]",
+                  "value": "Authoff",
+                  "type": "text"
+                },
+                {
+                  "key": "users[2][lastname]",
+                  "value": "Test {{rsuffix}}",
+                  "type": "text"
+                },
+                {
+                  "key": "users[2][email]",
+                  "value": "authoff.{{rsuffix}}@example.com",
+                  "type": "text"
+                },
+                {
+                  "key": "users[2][createpassword]",
+                  "value": "1",
+                  "type": "text"
+                },
+                {
+                  "key": "users[2][auth]",
+                  "value": "none",
+                  "type": "text"
+                }
+              ]
+            },
+            "url": {
+              "raw": "{{baseurl}}/webservice/rest/server.php",
+              "host": [
+                "{{baseurl}}"
+              ],
+              "path": [
+                "webservice",
+                "rest",
+                "server.php"
+              ]
+            },
+            "description": "Creates `vcostaedutest.suspended.<suffix>` (manual), `vcostaedutest.nologin.<suffix>` (authentication \"No login\") and `vcostaedutest.authoff.<suffix>` (authentication \"No authentication\", which is installed but switched off on any normal site). Expected: three ids.\n\nFunction: `core_user_create_users`."
+          },
+          "response": []
+        },
+        {
+          "name": "Prepare: suspend one account",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const raw = pm.response.text().trim();",
+                  "let d = null;",
+                  "try { d = JSON.parse(raw); } catch (e) { d = undefined; }",
+                  "const isError = (x) => x !== null && typeof x === 'object' && !Array.isArray(x) && typeof x.errorcode === 'string';",
+                  "",
+                  "pm.test('Moodle answers with JSON and no error', () => {",
+                  "    pm.expect(d, 'response is not JSON: ' + raw.slice(0, 200)).to.not.equal(undefined);",
+                  "    pm.expect(isError(d), raw.slice(0, 300)).to.be.false;",
+                  "});",
+                  "",
+                  "pm.test('No warnings', () => {",
+                  "    pm.expect(d === null || (Array.isArray(d.warnings) && d.warnings.length === 0), raw).to.be.true;",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/x-www-form-urlencoded"
+              }
+            ],
+            "body": {
+              "mode": "urlencoded",
+              "urlencoded": [
+                {
+                  "key": "wstoken",
+                  "value": "{{token}}",
+                  "type": "text"
+                },
+                {
+                  "key": "wsfunction",
+                  "value": "core_user_update_users",
+                  "type": "text"
+                },
+                {
+                  "key": "moodlewsrestformat",
+                  "value": "json",
+                  "type": "text"
+                },
+                {
+                  "key": "users[0][id]",
+                  "value": "{{suspendedid}}",
+                  "type": "text"
+                },
+                {
+                  "key": "users[0][suspended]",
+                  "value": "1",
+                  "type": "text"
+                }
+              ]
+            },
+            "url": {
+              "raw": "{{baseurl}}/webservice/rest/server.php",
+              "host": [
+                "{{baseurl}}"
+              ],
+              "path": [
+                "webservice",
+                "rest",
+                "server.php"
+              ]
+            },
+            "description": "Suspends `vcostaedutest.suspended.<suffix>`. Expected: no error.\n\nFunction: `core_user_update_users`."
+          },
+          "response": []
+        },
+        {
+          "name": "Prepare: find the main administrator",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const raw = pm.response.text().trim();",
+                  "let d = null;",
+                  "try { d = JSON.parse(raw); } catch (e) { d = undefined; }",
+                  "const isError = (x) => x !== null && typeof x === 'object' && !Array.isArray(x) && typeof x.errorcode === 'string';",
+                  "",
+                  "pm.test('Moodle answers with JSON and no error', () => {",
+                  "    pm.expect(d, 'response is not JSON: ' + raw.slice(0, 200)).to.not.equal(undefined);",
+                  "    pm.expect(isError(d), raw.slice(0, 300)).to.be.false;",
+                  "});",
+                  "",
+                  "pm.test('The account with id 2 exists', () => {",
+                  "    pm.expect(d).to.be.an('array').with.lengthOf(1);",
+                  "    pm.collectionVariables.set('adminusername', d[0].username);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/x-www-form-urlencoded"
+              }
+            ],
+            "body": {
+              "mode": "urlencoded",
+              "urlencoded": [
+                {
+                  "key": "wstoken",
+                  "value": "{{token}}",
+                  "type": "text"
+                },
+                {
+                  "key": "wsfunction",
+                  "value": "core_user_get_users_by_field",
+                  "type": "text"
+                },
+                {
+                  "key": "moodlewsrestformat",
+                  "value": "json",
+                  "type": "text"
+                },
+                {
+                  "key": "field",
+                  "value": "id",
+                  "type": "text"
+                },
+                {
+                  "key": "values[0]",
+                  "value": "2",
+                  "type": "text"
+                }
+              ]
+            },
+            "url": {
+              "raw": "{{baseurl}}/webservice/rest/server.php",
+              "host": [
+                "{{baseurl}}"
+              ],
+              "path": [
+                "webservice",
+                "rest",
+                "server.php"
+              ]
+            },
+            "description": "Reads the account with id 2, the administrator created when Moodle was installed. Expected: its username, used by the next refusal.\n\nFunction: `core_user_get_users_by_field`."
+          },
+          "response": []
+        },
+        {
+          "name": "Unknown user: vcostaedu_usernotfound",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const raw = pm.response.text().trim();",
+                  "let d = null;",
+                  "try { d = JSON.parse(raw); } catch (e) { d = undefined; }",
+                  "const isError = (x) => x !== null && typeof x === 'object' && !Array.isArray(x) && typeof x.errorcode === 'string';",
+                  "",
+                  "pm.test('Refused with the error code vcostaedu_usernotfound', () => {",
+                  "    pm.expect(isError(d), raw.slice(0, 300)).to.be.true;",
+                  "    pm.expect(d.errorcode).to.equal('vcostaedu_usernotfound');",
+                  "});",
+                  "pm.test('No login link in the answer', () => {",
+                  "    pm.expect(raw).to.not.include('loginurl');",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/x-www-form-urlencoded"
+              }
+            ],
+            "body": {
+              "mode": "urlencoded",
+              "urlencoded": [
+                {
+                  "key": "wstoken",
+                  "value": "{{token}}",
+                  "type": "text"
+                },
+                {
+                  "key": "wsfunction",
+                  "value": "local_vcostaedu_request_login_url",
+                  "type": "text"
+                },
+                {
+                  "key": "moodlewsrestformat",
+                  "value": "json",
+                  "type": "text"
+                },
+                {
+                  "key": "username",
+                  "value": "vcostaedutest.nobody.{{rsuffix}}",
+                  "type": "text"
+                }
+              ]
+            },
+            "url": {
+              "raw": "{{baseurl}}/webservice/rest/server.php",
+              "host": [
+                "{{baseurl}}"
+              ],
+              "path": [
+                "webservice",
+                "rest",
+                "server.php"
+              ]
+            },
+            "description": "A username that does not exist. A user deleted in Moodle gets the same answer, because Moodle changes the username of deleted accounts. Expected: the error code `vcostaedu_usernotfound` and no link.\n\nFunction: `local_vcostaedu_request_login_url`."
+          },
+          "response": []
+        },
+        {
+          "name": "Suspended account: vcostaedu_usersuspended",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const raw = pm.response.text().trim();",
+                  "let d = null;",
+                  "try { d = JSON.parse(raw); } catch (e) { d = undefined; }",
+                  "const isError = (x) => x !== null && typeof x === 'object' && !Array.isArray(x) && typeof x.errorcode === 'string';",
+                  "",
+                  "pm.test('Refused with the error code vcostaedu_usersuspended', () => {",
+                  "    pm.expect(isError(d), raw.slice(0, 300)).to.be.true;",
+                  "    pm.expect(d.errorcode).to.equal('vcostaedu_usersuspended');",
+                  "});",
+                  "pm.test('No login link in the answer', () => {",
+                  "    pm.expect(raw).to.not.include('loginurl');",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/x-www-form-urlencoded"
+              }
+            ],
+            "body": {
+              "mode": "urlencoded",
+              "urlencoded": [
+                {
+                  "key": "wstoken",
+                  "value": "{{token}}",
+                  "type": "text"
+                },
+                {
+                  "key": "wsfunction",
+                  "value": "local_vcostaedu_request_login_url",
+                  "type": "text"
+                },
+                {
+                  "key": "moodlewsrestformat",
+                  "value": "json",
+                  "type": "text"
+                },
+                {
+                  "key": "username",
+                  "value": "vcostaedutest.suspended.{{rsuffix}}",
+                  "type": "text"
+                }
+              ]
+            },
+            "url": {
+              "raw": "{{baseurl}}/webservice/rest/server.php",
+              "host": [
+                "{{baseurl}}"
+              ],
+              "path": [
+                "webservice",
+                "rest",
+                "server.php"
+              ]
+            },
+            "description": "The account suspended above. Expected: the error code `vcostaedu_usersuspended` and no link.\n\nFunction: `local_vcostaedu_request_login_url`."
+          },
+          "response": []
+        },
+        {
+          "name": "Authentication \"No login\": vcostaedu_usernologin",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const raw = pm.response.text().trim();",
+                  "let d = null;",
+                  "try { d = JSON.parse(raw); } catch (e) { d = undefined; }",
+                  "const isError = (x) => x !== null && typeof x === 'object' && !Array.isArray(x) && typeof x.errorcode === 'string';",
+                  "",
+                  "pm.test('Refused with the error code vcostaedu_usernologin', () => {",
+                  "    pm.expect(isError(d), raw.slice(0, 300)).to.be.true;",
+                  "    pm.expect(d.errorcode).to.equal('vcostaedu_usernologin');",
+                  "});",
+                  "pm.test('No login link in the answer', () => {",
+                  "    pm.expect(raw).to.not.include('loginurl');",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/x-www-form-urlencoded"
+              }
+            ],
+            "body": {
+              "mode": "urlencoded",
+              "urlencoded": [
+                {
+                  "key": "wstoken",
+                  "value": "{{token}}",
+                  "type": "text"
+                },
+                {
+                  "key": "wsfunction",
+                  "value": "local_vcostaedu_request_login_url",
+                  "type": "text"
+                },
+                {
+                  "key": "moodlewsrestformat",
+                  "value": "json",
+                  "type": "text"
+                },
+                {
+                  "key": "username",
+                  "value": "vcostaedutest.nologin.{{rsuffix}}",
+                  "type": "text"
+                }
+              ]
+            },
+            "url": {
+              "raw": "{{baseurl}}/webservice/rest/server.php",
+              "host": [
+                "{{baseurl}}"
+              ],
+              "path": [
+                "webservice",
+                "rest",
+                "server.php"
+              ]
+            },
+            "description": "An account with the authentication method \"No login\". Expected: the error code `vcostaedu_usernologin` and no link.\n\nFunction: `local_vcostaedu_request_login_url`."
+          },
+          "response": []
+        },
+        {
+          "name": "Authentication switched off: vcostaedu_authdisabled",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const raw = pm.response.text().trim();",
+                  "let d = null;",
+                  "try { d = JSON.parse(raw); } catch (e) { d = undefined; }",
+                  "const isError = (x) => x !== null && typeof x === 'object' && !Array.isArray(x) && typeof x.errorcode === 'string';",
+                  "",
+                  "pm.test('Refused with the error code vcostaedu_authdisabled', () => {",
+                  "    pm.expect(isError(d), raw.slice(0, 300)).to.be.true;",
+                  "    pm.expect(d.errorcode).to.equal('vcostaedu_authdisabled');",
+                  "});",
+                  "pm.test('No login link in the answer', () => {",
+                  "    pm.expect(raw).to.not.include('loginurl');",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/x-www-form-urlencoded"
+              }
+            ],
+            "body": {
+              "mode": "urlencoded",
+              "urlencoded": [
+                {
+                  "key": "wstoken",
+                  "value": "{{token}}",
+                  "type": "text"
+                },
+                {
+                  "key": "wsfunction",
+                  "value": "local_vcostaedu_request_login_url",
+                  "type": "text"
+                },
+                {
+                  "key": "moodlewsrestformat",
+                  "value": "json",
+                  "type": "text"
+                },
+                {
+                  "key": "username",
+                  "value": "vcostaedutest.authoff.{{rsuffix}}",
+                  "type": "text"
+                }
+              ]
+            },
+            "url": {
+              "raw": "{{baseurl}}/webservice/rest/server.php",
+              "host": [
+                "{{baseurl}}"
+              ],
+              "path": [
+                "webservice",
+                "rest",
+                "server.php"
+              ]
+            },
+            "description": "An account whose authentication method is switched off on the site. Expected: the error code `vcostaedu_authdisabled` and no link.\n\nFunction: `local_vcostaedu_request_login_url`."
+          },
+          "response": []
+        },
+        {
+          "name": "Guest account: vcostaedu_userisguest",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const raw = pm.response.text().trim();",
+                  "let d = null;",
+                  "try { d = JSON.parse(raw); } catch (e) { d = undefined; }",
+                  "const isError = (x) => x !== null && typeof x === 'object' && !Array.isArray(x) && typeof x.errorcode === 'string';",
+                  "",
+                  "pm.test('Refused with the error code vcostaedu_userisguest', () => {",
+                  "    pm.expect(isError(d), raw.slice(0, 300)).to.be.true;",
+                  "    pm.expect(d.errorcode).to.equal('vcostaedu_userisguest');",
+                  "});",
+                  "pm.test('No login link in the answer', () => {",
+                  "    pm.expect(raw).to.not.include('loginurl');",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/x-www-form-urlencoded"
+              }
+            ],
+            "body": {
+              "mode": "urlencoded",
+              "urlencoded": [
+                {
+                  "key": "wstoken",
+                  "value": "{{token}}",
+                  "type": "text"
+                },
+                {
+                  "key": "wsfunction",
+                  "value": "local_vcostaedu_request_login_url",
+                  "type": "text"
+                },
+                {
+                  "key": "moodlewsrestformat",
+                  "value": "json",
+                  "type": "text"
+                },
+                {
+                  "key": "username",
+                  "value": "guest",
+                  "type": "text"
+                }
+              ]
+            },
+            "url": {
+              "raw": "{{baseurl}}/webservice/rest/server.php",
+              "host": [
+                "{{baseurl}}"
+              ],
+              "path": [
+                "webservice",
+                "rest",
+                "server.php"
+              ]
+            },
+            "description": "The guest account that every Moodle has. Expected: the error code `vcostaedu_userisguest` and no link.\n\nFunction: `local_vcostaedu_request_login_url`."
+          },
+          "response": []
+        },
+        {
+          "name": "Site administrator: vcostaedu_userisadmin",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const raw = pm.response.text().trim();",
+                  "let d = null;",
+                  "try { d = JSON.parse(raw); } catch (e) { d = undefined; }",
+                  "const isError = (x) => x !== null && typeof x === 'object' && !Array.isArray(x) && typeof x.errorcode === 'string';",
+                  "",
+                  "pm.test('Refused with the error code vcostaedu_userisadmin', () => {",
+                  "    pm.expect(isError(d), raw.slice(0, 300)).to.be.true;",
+                  "    pm.expect(d.errorcode).to.equal('vcostaedu_userisadmin');",
+                  "});",
+                  "pm.test('No login link in the answer', () => {",
+                  "    pm.expect(raw).to.not.include('loginurl');",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/x-www-form-urlencoded"
+              }
+            ],
+            "body": {
+              "mode": "urlencoded",
+              "urlencoded": [
+                {
+                  "key": "wstoken",
+                  "value": "{{token}}",
+                  "type": "text"
+                },
+                {
+                  "key": "wsfunction",
+                  "value": "local_vcostaedu_request_login_url",
+                  "type": "text"
+                },
+                {
+                  "key": "moodlewsrestformat",
+                  "value": "json",
+                  "type": "text"
+                },
+                {
+                  "key": "username",
+                  "value": "{{adminusername}}",
+                  "type": "text"
+                }
+              ]
+            },
+            "url": {
+              "raw": "{{baseurl}}/webservice/rest/server.php",
+              "host": [
+                "{{baseurl}}"
+              ],
+              "path": [
+                "webservice",
+                "rest",
+                "server.php"
+              ]
+            },
+            "description": "The main administrator found above. Administrators never get a link. Expected: the error code `vcostaedu_userisadmin` and no link.\n\nFunction: `local_vcostaedu_request_login_url`."
+          },
+          "response": []
+        },
+        {
+          "name": "Service account: vcostaedu_userisservice",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const raw = pm.response.text().trim();",
+                  "let d = null;",
+                  "try { d = JSON.parse(raw); } catch (e) { d = undefined; }",
+                  "const isError = (x) => x !== null && typeof x === 'object' && !Array.isArray(x) && typeof x.errorcode === 'string';",
+                  "",
+                  "pm.test('Refused with the error code vcostaedu_userisservice', () => {",
+                  "    pm.expect(isError(d), raw.slice(0, 300)).to.be.true;",
+                  "    pm.expect(d.errorcode).to.equal('vcostaedu_userisservice');",
+                  "});",
+                  "pm.test('No login link in the answer', () => {",
+                  "    pm.expect(raw).to.not.include('loginurl');",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/x-www-form-urlencoded"
+              }
+            ],
+            "body": {
+              "mode": "urlencoded",
+              "urlencoded": [
+                {
+                  "key": "wstoken",
+                  "value": "{{token}}",
+                  "type": "text"
+                },
+                {
+                  "key": "wsfunction",
+                  "value": "local_vcostaedu_request_login_url",
+                  "type": "text"
+                },
+                {
+                  "key": "moodlewsrestformat",
+                  "value": "json",
+                  "type": "text"
+                },
+                {
+                  "key": "username",
+                  "value": "vcostaedu_ws",
+                  "type": "text"
+                }
+              ]
+            },
+            "url": {
+              "raw": "{{baseurl}}/webservice/rest/server.php",
+              "host": [
+                "{{baseurl}}"
+              ],
+              "path": [
+                "webservice",
+                "rest",
+                "server.php"
+              ]
+            },
+            "description": "The service account the plugin created, the owner of the key. Expected: the error code `vcostaedu_userisservice` and no link.\n\nFunction: `local_vcostaedu_request_login_url`."
+          },
+          "response": []
+        },
+        {
+          "name": "Malformed e-mail address: invalidparameter",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const raw = pm.response.text().trim();",
+                  "let d = null;",
+                  "try { d = JSON.parse(raw); } catch (e) { d = undefined; }",
+                  "const isError = (x) => x !== null && typeof x === 'object' && !Array.isArray(x) && typeof x.errorcode === 'string';",
+                  "",
+                  "pm.test('Refused with the error code invalidparameter', () => {",
+                  "    pm.expect(isError(d), raw.slice(0, 300)).to.be.true;",
+                  "    pm.expect(d.errorcode).to.equal('invalidparameter');",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/x-www-form-urlencoded"
+              }
+            ],
+            "body": {
+              "mode": "urlencoded",
+              "urlencoded": [
+                {
+                  "key": "wstoken",
+                  "value": "{{token}}",
+                  "type": "text"
+                },
+                {
+                  "key": "wsfunction",
+                  "value": "local_vcostaedu_find_users_by_email",
+                  "type": "text"
+                },
+                {
+                  "key": "moodlewsrestformat",
+                  "value": "json",
+                  "type": "text"
+                },
+                {
+                  "key": "emails[0]",
+                  "value": "not-an-address",
+                  "type": "text"
+                }
+              ]
+            },
+            "url": {
+              "raw": "{{baseurl}}/webservice/rest/server.php",
+              "host": [
+                "{{baseurl}}"
+              ],
+              "path": [
+                "webservice",
+                "rest",
+                "server.php"
+              ]
+            },
+            "description": "Looks for an address without \"@\". Expected: the core error code `invalidparameter`.\n\nFunction: `local_vcostaedu_find_users_by_email`."
+          },
+          "response": []
+        },
+        {
+          "name": "Malformed username: invalidparameter",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const raw = pm.response.text().trim();",
+                  "let d = null;",
+                  "try { d = JSON.parse(raw); } catch (e) { d = undefined; }",
+                  "const isError = (x) => x !== null && typeof x === 'object' && !Array.isArray(x) && typeof x.errorcode === 'string';",
+                  "",
+                  "pm.test('Refused with the error code invalidparameter', () => {",
+                  "    pm.expect(isError(d), raw.slice(0, 300)).to.be.true;",
+                  "    pm.expect(d.errorcode).to.equal('invalidparameter');",
+                  "});",
+                  "pm.test('No login link in the answer', () => {",
+                  "    pm.expect(raw).to.not.include('loginurl');",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/x-www-form-urlencoded"
+              }
+            ],
+            "body": {
+              "mode": "urlencoded",
+              "urlencoded": [
+                {
+                  "key": "wstoken",
+                  "value": "{{token}}",
+                  "type": "text"
+                },
+                {
+                  "key": "wsfunction",
+                  "value": "local_vcostaedu_request_login_url",
+                  "type": "text"
+                },
+                {
+                  "key": "moodlewsrestformat",
+                  "value": "json",
+                  "type": "text"
+                },
+                {
+                  "key": "username",
+                  "value": "Not A Username!",
+                  "type": "text"
+                }
+              ]
+            },
+            "url": {
+              "raw": "{{baseurl}}/webservice/rest/server.php",
+              "host": [
+                "{{baseurl}}"
+              ],
+              "path": [
+                "webservice",
+                "rest",
+                "server.php"
+              ]
+            },
+            "description": "A username with spaces, capitals and \"!\", which Moodle never accepts as a username. Expected: the core error code `invalidparameter` and no link.\n\nFunction: `local_vcostaedu_request_login_url`."
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "4. Enrolment changes",
+      "description": "Changes to the enrolment of the student created in folder 2: a second role, suspension, reactivation, unenrolment and enrolment with another role. Through the service, a role is changed by enrolling again with the new role (Moodle adds it), and a role is removed only by unenrolling. The service has no group functions, so there is no group request. Each change is followed by a request that checks it. Run folder 2 first.",
+      "item": [
+        {
+          "name": "Give the student a second role",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const raw = pm.response.text().trim();",
+                  "let d = null;",
+                  "try { d = JSON.parse(raw); } catch (e) { d = undefined; }",
+                  "const isError = (x) => x !== null && typeof x === 'object' && !Array.isArray(x) && typeof x.errorcode === 'string';",
+                  "",
+                  "// Known Moodle behaviour: in a course with a teacher, every manual enrolment call sends the",
+                  "// course welcome message. When the site cannot send e-mail, Moodle saves the change and still",
+                  "// answers \"Message was not sent.\". That answer is a warning, not a failure; the next request",
+                  "// checks that the change was saved.",
+                  "const emailWarning = isError(d) && /Message was not sent/.test(String(d.message) + ' ' + String(d.errorcode));",
+                  "pm.test('Saved (no error, or only the e-mail warning \"Message was not sent.\")', () => {",
+                  "    pm.expect(d === null || emailWarning, raw.slice(0, 300)).to.be.true;",
+                  "});",
+                  "if (emailWarning) {",
+                  "    console.warn('Moodle could not send the welcome e-mail. The change is saved; the next request checks it.');",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/x-www-form-urlencoded"
+              }
+            ],
+            "body": {
+              "mode": "urlencoded",
+              "urlencoded": [
+                {
+                  "key": "wstoken",
+                  "value": "{{token}}",
+                  "type": "text"
+                },
+                {
+                  "key": "wsfunction",
+                  "value": "enrol_manual_enrol_users",
+                  "type": "text"
+                },
+                {
+                  "key": "moodlewsrestformat",
+                  "value": "json",
+                  "type": "text"
+                },
+                {
+                  "key": "enrolments[0][roleid]",
+                  "value": "4",
+                  "type": "text"
+                },
+                {
+                  "key": "enrolments[0][userid]",
+                  "value": "{{studentid}}",
+                  "type": "text"
+                },
+                {
+                  "key": "enrolments[0][courseid]",
+                  "value": "{{courseid}}",
+                  "type": "text"
+                }
+              ]
+            },
+            "url": {
+              "raw": "{{baseurl}}/webservice/rest/server.php",
+              "host": [
+                "{{baseurl}}"
+              ],
+              "path": [
+                "webservice",
+                "rest",
+                "server.php"
+              ]
+            },
+            "description": "Enrols the student again with the role \"Non-editing teacher\" (role id 4). Moodle keeps the enrolment and adds the role. Expected: saved.\n\nFunction: `enrol_manual_enrol_users`."
+          },
+          "response": []
+        },
+        {
+          "name": "Check: the student has both roles",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const raw = pm.response.text().trim();",
+                  "let d = null;",
+                  "try { d = JSON.parse(raw); } catch (e) { d = undefined; }",
+                  "const isError = (x) => x !== null && typeof x === 'object' && !Array.isArray(x) && typeof x.errorcode === 'string';",
+                  "",
+                  "pm.test('Moodle answers with JSON and no error', () => {",
+                  "    pm.expect(d, 'response is not JSON: ' + raw.slice(0, 200)).to.not.equal(undefined);",
+                  "    pm.expect(isError(d), raw.slice(0, 300)).to.be.false;",
+                  "});",
+                  "",
+                  "const me = d.find((u) => u.id === Number(pm.variables.get('studentid')));",
+                  "const roles = me ? (me.roles || []).map((r) => r.shortname).sort() : null;",
+                  "",
+                  "pm.test('Roles student and teacher', () => {",
+                  "    pm.expect(roles).to.deep.equal(['student', 'teacher']);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/x-www-form-urlencoded"
+              }
+            ],
+            "body": {
+              "mode": "urlencoded",
+              "urlencoded": [
+                {
+                  "key": "wstoken",
+                  "value": "{{token}}",
+                  "type": "text"
+                },
+                {
+                  "key": "wsfunction",
+                  "value": "core_enrol_get_enrolled_users",
+                  "type": "text"
+                },
+                {
+                  "key": "moodlewsrestformat",
+                  "value": "json",
+                  "type": "text"
+                },
+                {
+                  "key": "courseid",
+                  "value": "{{courseid}}",
+                  "type": "text"
+                }
+              ]
+            },
+            "url": {
+              "raw": "{{baseurl}}/webservice/rest/server.php",
+              "host": [
+                "{{baseurl}}"
+              ],
+              "path": [
+                "webservice",
+                "rest",
+                "server.php"
+              ]
+            },
+            "description": "Expected: the student with \"student\" and \"teacher\".\n\nFunction: `core_enrol_get_enrolled_users`."
+          },
+          "response": []
+        },
+        {
+          "name": "Suspend the enrolment",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const raw = pm.response.text().trim();",
+                  "let d = null;",
+                  "try { d = JSON.parse(raw); } catch (e) { d = undefined; }",
+                  "const isError = (x) => x !== null && typeof x === 'object' && !Array.isArray(x) && typeof x.errorcode === 'string';",
+                  "",
+                  "// Known Moodle behaviour: in a course with a teacher, every manual enrolment call sends the",
+                  "// course welcome message. When the site cannot send e-mail, Moodle saves the change and still",
+                  "// answers \"Message was not sent.\". That answer is a warning, not a failure; the next request",
+                  "// checks that the change was saved.",
+                  "const emailWarning = isError(d) && /Message was not sent/.test(String(d.message) + ' ' + String(d.errorcode));",
+                  "pm.test('Saved (no error, or only the e-mail warning \"Message was not sent.\")', () => {",
+                  "    pm.expect(d === null || emailWarning, raw.slice(0, 300)).to.be.true;",
+                  "});",
+                  "if (emailWarning) {",
+                  "    console.warn('Moodle could not send the welcome e-mail. The change is saved; the next request checks it.');",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/x-www-form-urlencoded"
+              }
+            ],
+            "body": {
+              "mode": "urlencoded",
+              "urlencoded": [
+                {
+                  "key": "wstoken",
+                  "value": "{{token}}",
+                  "type": "text"
+                },
+                {
+                  "key": "wsfunction",
+                  "value": "enrol_manual_enrol_users",
+                  "type": "text"
+                },
+                {
+                  "key": "moodlewsrestformat",
+                  "value": "json",
+                  "type": "text"
+                },
+                {
+                  "key": "enrolments[0][roleid]",
+                  "value": "5",
+                  "type": "text"
+                },
+                {
+                  "key": "enrolments[0][userid]",
+                  "value": "{{studentid}}",
+                  "type": "text"
+                },
+                {
+                  "key": "enrolments[0][courseid]",
+                  "value": "{{courseid}}",
+                  "type": "text"
+                },
+                {
+                  "key": "enrolments[0][suspend]",
+                  "value": "1",
+                  "type": "text"
+                }
+              ]
+            },
+            "url": {
+              "raw": "{{baseurl}}/webservice/rest/server.php",
+              "host": [
+                "{{baseurl}}"
+              ],
+              "path": [
+                "webservice",
+                "rest",
+                "server.php"
+              ]
+            },
+            "description": "Suspends the enrolment of the student (`suspend` = 1). The account stays active; only the course is closed to the student. Expected: saved.\n\nFunction: `enrol_manual_enrol_users`."
+          },
+          "response": []
+        },
+        {
+          "name": "Check: the student is not among the active participants",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const raw = pm.response.text().trim();",
+                  "let d = null;",
+                  "try { d = JSON.parse(raw); } catch (e) { d = undefined; }",
+                  "const isError = (x) => x !== null && typeof x === 'object' && !Array.isArray(x) && typeof x.errorcode === 'string';",
+                  "",
+                  "pm.test('Moodle answers with JSON and no error', () => {",
+                  "    pm.expect(d, 'response is not JSON: ' + raw.slice(0, 200)).to.not.equal(undefined);",
+                  "    pm.expect(isError(d), raw.slice(0, 300)).to.be.false;",
+                  "});",
+                  "",
+                  "const ids = d.map((u) => u.id);",
+                  "pm.test('The student is not active', () => {",
+                  "    pm.expect(ids).to.not.include(Number(pm.variables.get('studentid')));",
+                  "});",
+                  "pm.test('The teacher is still active', () => {",
+                  "    pm.expect(ids).to.include(Number(pm.variables.get('teacherid')));",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/x-www-form-urlencoded"
+              }
+            ],
+            "body": {
+              "mode": "urlencoded",
+              "urlencoded": [
+                {
+                  "key": "wstoken",
+                  "value": "{{token}}",
+                  "type": "text"
+                },
+                {
+                  "key": "wsfunction",
+                  "value": "core_enrol_get_enrolled_users",
+                  "type": "text"
+                },
+                {
+                  "key": "moodlewsrestformat",
+                  "value": "json",
+                  "type": "text"
+                },
+                {
+                  "key": "courseid",
+                  "value": "{{courseid}}",
+                  "type": "text"
+                },
+                {
+                  "key": "options[0][name]",
+                  "value": "onlyactive",
+                  "type": "text"
+                },
+                {
+                  "key": "options[0][value]",
+                  "value": "1",
+                  "type": "text"
+                }
+              ]
+            },
+            "url": {
+              "raw": "{{baseurl}}/webservice/rest/server.php",
+              "host": [
+                "{{baseurl}}"
+              ],
+              "path": [
+                "webservice",
+                "rest",
+                "server.php"
+              ]
+            },
+            "description": "Lists only active enrolments (`onlyactive`). Expected: the teacher, not the student.\n\nFunction: `core_enrol_get_enrolled_users`."
+          },
+          "response": []
+        },
+        {
+          "name": "Reactivate the enrolment",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const raw = pm.response.text().trim();",
+                  "let d = null;",
+                  "try { d = JSON.parse(raw); } catch (e) { d = undefined; }",
+                  "const isError = (x) => x !== null && typeof x === 'object' && !Array.isArray(x) && typeof x.errorcode === 'string';",
+                  "",
+                  "// Known Moodle behaviour: in a course with a teacher, every manual enrolment call sends the",
+                  "// course welcome message. When the site cannot send e-mail, Moodle saves the change and still",
+                  "// answers \"Message was not sent.\". That answer is a warning, not a failure; the next request",
+                  "// checks that the change was saved.",
+                  "const emailWarning = isError(d) && /Message was not sent/.test(String(d.message) + ' ' + String(d.errorcode));",
+                  "pm.test('Saved (no error, or only the e-mail warning \"Message was not sent.\")', () => {",
+                  "    pm.expect(d === null || emailWarning, raw.slice(0, 300)).to.be.true;",
+                  "});",
+                  "if (emailWarning) {",
+                  "    console.warn('Moodle could not send the welcome e-mail. The change is saved; the next request checks it.');",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/x-www-form-urlencoded"
+              }
+            ],
+            "body": {
+              "mode": "urlencoded",
+              "urlencoded": [
+                {
+                  "key": "wstoken",
+                  "value": "{{token}}",
+                  "type": "text"
+                },
+                {
+                  "key": "wsfunction",
+                  "value": "enrol_manual_enrol_users",
+                  "type": "text"
+                },
+                {
+                  "key": "moodlewsrestformat",
+                  "value": "json",
+                  "type": "text"
+                },
+                {
+                  "key": "enrolments[0][roleid]",
+                  "value": "5",
+                  "type": "text"
+                },
+                {
+                  "key": "enrolments[0][userid]",
+                  "value": "{{studentid}}",
+                  "type": "text"
+                },
+                {
+                  "key": "enrolments[0][courseid]",
+                  "value": "{{courseid}}",
+                  "type": "text"
+                },
+                {
+                  "key": "enrolments[0][suspend]",
+                  "value": "0",
+                  "type": "text"
+                }
+              ]
+            },
+            "url": {
+              "raw": "{{baseurl}}/webservice/rest/server.php",
+              "host": [
+                "{{baseurl}}"
+              ],
+              "path": [
+                "webservice",
+                "rest",
+                "server.php"
+              ]
+            },
+            "description": "Reactivates the enrolment (`suspend` = 0). Expected: saved.\n\nFunction: `enrol_manual_enrol_users`."
+          },
+          "response": []
+        },
+        {
+          "name": "Check: the student is active again",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const raw = pm.response.text().trim();",
+                  "let d = null;",
+                  "try { d = JSON.parse(raw); } catch (e) { d = undefined; }",
+                  "const isError = (x) => x !== null && typeof x === 'object' && !Array.isArray(x) && typeof x.errorcode === 'string';",
+                  "",
+                  "pm.test('Moodle answers with JSON and no error', () => {",
+                  "    pm.expect(d, 'response is not JSON: ' + raw.slice(0, 200)).to.not.equal(undefined);",
+                  "    pm.expect(isError(d), raw.slice(0, 300)).to.be.false;",
+                  "});",
+                  "",
+                  "pm.test('The student is active', () => {",
+                  "    pm.expect(d.map((u) => u.id)).to.include(Number(pm.variables.get('studentid')));",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/x-www-form-urlencoded"
+              }
+            ],
+            "body": {
+              "mode": "urlencoded",
+              "urlencoded": [
+                {
+                  "key": "wstoken",
+                  "value": "{{token}}",
+                  "type": "text"
+                },
+                {
+                  "key": "wsfunction",
+                  "value": "core_enrol_get_enrolled_users",
+                  "type": "text"
+                },
+                {
+                  "key": "moodlewsrestformat",
+                  "value": "json",
+                  "type": "text"
+                },
+                {
+                  "key": "courseid",
+                  "value": "{{courseid}}",
+                  "type": "text"
+                },
+                {
+                  "key": "options[0][name]",
+                  "value": "onlyactive",
+                  "type": "text"
+                },
+                {
+                  "key": "options[0][value]",
+                  "value": "1",
+                  "type": "text"
+                }
+              ]
+            },
+            "url": {
+              "raw": "{{baseurl}}/webservice/rest/server.php",
+              "host": [
+                "{{baseurl}}"
+              ],
+              "path": [
+                "webservice",
+                "rest",
+                "server.php"
+              ]
+            },
+            "description": "Lists only active enrolments. Expected: the student is back.\n\nFunction: `core_enrol_get_enrolled_users`."
+          },
+          "response": []
+        },
+        {
+          "name": "Unenrol the student",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const raw = pm.response.text().trim();",
+                  "let d = null;",
+                  "try { d = JSON.parse(raw); } catch (e) { d = undefined; }",
+                  "const isError = (x) => x !== null && typeof x === 'object' && !Array.isArray(x) && typeof x.errorcode === 'string';",
+                  "",
+                  "pm.test('Moodle answers with JSON and no error', () => {",
+                  "    pm.expect(d, 'response is not JSON: ' + raw.slice(0, 200)).to.not.equal(undefined);",
+                  "    pm.expect(isError(d), raw.slice(0, 300)).to.be.false;",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/x-www-form-urlencoded"
+              }
+            ],
+            "body": {
+              "mode": "urlencoded",
+              "urlencoded": [
+                {
+                  "key": "wstoken",
+                  "value": "{{token}}",
+                  "type": "text"
+                },
+                {
+                  "key": "wsfunction",
+                  "value": "enrol_manual_unenrol_users",
+                  "type": "text"
+                },
+                {
+                  "key": "moodlewsrestformat",
+                  "value": "json",
+                  "type": "text"
+                },
+                {
+                  "key": "enrolments[0][userid]",
+                  "value": "{{studentid}}",
+                  "type": "text"
+                },
+                {
+                  "key": "enrolments[0][courseid]",
+                  "value": "{{courseid}}",
+                  "type": "text"
+                }
+              ]
+            },
+            "url": {
+              "raw": "{{baseurl}}/webservice/rest/server.php",
+              "host": [
+                "{{baseurl}}"
+              ],
+              "path": [
+                "webservice",
+                "rest",
+                "server.php"
+              ]
+            },
+            "description": "Removes the enrolment of the student and all the roles that came with it. Expected: no error.\n\nFunction: `enrol_manual_unenrol_users`."
+          },
+          "response": []
+        },
+        {
+          "name": "Check: the course is no longer among the courses of the student",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const raw = pm.response.text().trim();",
+                  "let d = null;",
+                  "try { d = JSON.parse(raw); } catch (e) { d = undefined; }",
+                  "const isError = (x) => x !== null && typeof x === 'object' && !Array.isArray(x) && typeof x.errorcode === 'string';",
+                  "",
+                  "pm.test('Moodle answers with JSON and no error', () => {",
+                  "    pm.expect(d, 'response is not JSON: ' + raw.slice(0, 200)).to.not.equal(undefined);",
+                  "    pm.expect(isError(d), raw.slice(0, 300)).to.be.false;",
+                  "});",
+                  "",
+                  "pm.test('The test course is not listed', () => {",
+                  "    pm.expect(d.map((c) => c.id)).to.not.include(Number(pm.variables.get('courseid')));",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/x-www-form-urlencoded"
+              }
+            ],
+            "body": {
+              "mode": "urlencoded",
+              "urlencoded": [
+                {
+                  "key": "wstoken",
+                  "value": "{{token}}",
+                  "type": "text"
+                },
+                {
+                  "key": "wsfunction",
+                  "value": "core_enrol_get_users_courses",
+                  "type": "text"
+                },
+                {
+                  "key": "moodlewsrestformat",
+                  "value": "json",
+                  "type": "text"
+                },
+                {
+                  "key": "userid",
+                  "value": "{{studentid}}",
+                  "type": "text"
+                }
+              ]
+            },
+            "url": {
+              "raw": "{{baseurl}}/webservice/rest/server.php",
+              "host": [
+                "{{baseurl}}"
+              ],
+              "path": [
+                "webservice",
+                "rest",
+                "server.php"
+              ]
+            },
+            "description": "Lists the courses of the student. Expected: the test course is gone.\n\nFunction: `core_enrol_get_users_courses`."
+          },
+          "response": []
+        },
+        {
+          "name": "Enrol the student again with another role",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const raw = pm.response.text().trim();",
+                  "let d = null;",
+                  "try { d = JSON.parse(raw); } catch (e) { d = undefined; }",
+                  "const isError = (x) => x !== null && typeof x === 'object' && !Array.isArray(x) && typeof x.errorcode === 'string';",
+                  "",
+                  "// Known Moodle behaviour: in a course with a teacher, every manual enrolment call sends the",
+                  "// course welcome message. When the site cannot send e-mail, Moodle saves the change and still",
+                  "// answers \"Message was not sent.\". That answer is a warning, not a failure; the next request",
+                  "// checks that the change was saved.",
+                  "const emailWarning = isError(d) && /Message was not sent/.test(String(d.message) + ' ' + String(d.errorcode));",
+                  "pm.test('Saved (no error, or only the e-mail warning \"Message was not sent.\")', () => {",
+                  "    pm.expect(d === null || emailWarning, raw.slice(0, 300)).to.be.true;",
+                  "});",
+                  "if (emailWarning) {",
+                  "    console.warn('Moodle could not send the welcome e-mail. The change is saved; the next request checks it.');",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/x-www-form-urlencoded"
+              }
+            ],
+            "body": {
+              "mode": "urlencoded",
+              "urlencoded": [
+                {
+                  "key": "wstoken",
+                  "value": "{{token}}",
+                  "type": "text"
+                },
+                {
+                  "key": "wsfunction",
+                  "value": "enrol_manual_enrol_users",
+                  "type": "text"
+                },
+                {
+                  "key": "moodlewsrestformat",
+                  "value": "json",
+                  "type": "text"
+                },
+                {
+                  "key": "enrolments[0][roleid]",
+                  "value": "4",
+                  "type": "text"
+                },
+                {
+                  "key": "enrolments[0][userid]",
+                  "value": "{{studentid}}",
+                  "type": "text"
+                },
+                {
+                  "key": "enrolments[0][courseid]",
+                  "value": "{{courseid}}",
+                  "type": "text"
+                }
+              ]
+            },
+            "url": {
+              "raw": "{{baseurl}}/webservice/rest/server.php",
+              "host": [
+                "{{baseurl}}"
+              ],
+              "path": [
+                "webservice",
+                "rest",
+                "server.php"
+              ]
+            },
+            "description": "Enrols the same person again, now only as \"Non-editing teacher\" (role id 4): this is how a role is changed through the service. Expected: saved.\n\nFunction: `enrol_manual_enrol_users`."
+          },
+          "response": []
+        },
+        {
+          "name": "Check: only the new role",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const raw = pm.response.text().trim();",
+                  "let d = null;",
+                  "try { d = JSON.parse(raw); } catch (e) { d = undefined; }",
+                  "const isError = (x) => x !== null && typeof x === 'object' && !Array.isArray(x) && typeof x.errorcode === 'string';",
+                  "",
+                  "pm.test('Moodle answers with JSON and no error', () => {",
+                  "    pm.expect(d, 'response is not JSON: ' + raw.slice(0, 200)).to.not.equal(undefined);",
+                  "    pm.expect(isError(d), raw.slice(0, 300)).to.be.false;",
+                  "});",
+                  "",
+                  "const me = d.find((u) => u.id === Number(pm.variables.get('studentid')));",
+                  "const roles = me ? (me.roles || []).map((r) => r.shortname).sort() : null;",
+                  "",
+                  "pm.test('Only the role teacher', () => {",
+                  "    pm.expect(roles).to.deep.equal(['teacher']);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/x-www-form-urlencoded"
+              }
+            ],
+            "body": {
+              "mode": "urlencoded",
+              "urlencoded": [
+                {
+                  "key": "wstoken",
+                  "value": "{{token}}",
+                  "type": "text"
+                },
+                {
+                  "key": "wsfunction",
+                  "value": "core_enrol_get_enrolled_users",
+                  "type": "text"
+                },
+                {
+                  "key": "moodlewsrestformat",
+                  "value": "json",
+                  "type": "text"
+                },
+                {
+                  "key": "courseid",
+                  "value": "{{courseid}}",
+                  "type": "text"
+                }
+              ]
+            },
+            "url": {
+              "raw": "{{baseurl}}/webservice/rest/server.php",
+              "host": [
+                "{{baseurl}}"
+              ],
+              "path": [
+                "webservice",
+                "rest",
+                "server.php"
+              ]
+            },
+            "description": "Expected: the person with the role \"teacher\" and no longer \"student\".\n\nFunction: `core_enrol_get_enrolled_users`."
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "5. Wrong key",
+      "description": "The call of folder 1 with a fixed key that does not exist (it does not use the variable `token`). Expected: Moodle refuses with `invalidtoken`.",
+      "item": [
+        {
+          "name": "Site information with a wrong key",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const raw = pm.response.text().trim();",
+                  "let d = null;",
+                  "try { d = JSON.parse(raw); } catch (e) { d = undefined; }",
+                  "const isError = (x) => x !== null && typeof x === 'object' && !Array.isArray(x) && typeof x.errorcode === 'string';",
+                  "",
+                  "pm.test('Refused with the error code invalidtoken', () => {",
+                  "    pm.expect(isError(d), raw.slice(0, 300)).to.be.true;",
+                  "    pm.expect(d.errorcode).to.equal('invalidtoken');",
+                  "});",
+                  "pm.test('No site data in the answer', () => {",
+                  "    pm.expect(raw).to.not.include('functions');",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/x-www-form-urlencoded"
+              }
+            ],
+            "body": {
+              "mode": "urlencoded",
+              "urlencoded": [
+                {
+                  "key": "wstoken",
+                  "value": "00000000000000000000000000000000",
+                  "type": "text"
+                },
+                {
+                  "key": "wsfunction",
+                  "value": "core_webservice_get_site_info",
+                  "type": "text"
+                },
+                {
+                  "key": "moodlewsrestformat",
+                  "value": "json",
+                  "type": "text"
+                }
+              ]
+            },
+            "url": {
+              "raw": "{{baseurl}}/webservice/rest/server.php",
+              "host": [
+                "{{baseurl}}"
+              ],
+              "path": [
+                "webservice",
+                "rest",
+                "server.php"
+              ]
+            },
+            "description": "Same call as folder 1, with the key 00000000000000000000000000000000. Expected: the error code `invalidtoken` and no site data.\n\nFunction: `core_webservice_get_site_info`."
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "6. Clean up",
+      "description": "Undoes what the service allows to undo: unenrols the test users, hides the test course and suspends the test accounts. The service cannot delete users, courses or categories, so they stay on the site, hidden or suspended. They are easy to recognise: the category and the course start with `VCOSTAEDU-TEST`, the usernames start with `vcostaedutest.` and their e-mail addresses are in the reserved domain example.com. A site administrator can delete them in Moodle (Site administration > Courses > Manage courses and categories, and Site administration > Users > Bulk user actions).",
+      "item": [
+        {
+          "name": "Unenrol the teacher and the student",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const raw = pm.response.text().trim();",
+                  "let d = null;",
+                  "try { d = JSON.parse(raw); } catch (e) { d = undefined; }",
+                  "const isError = (x) => x !== null && typeof x === 'object' && !Array.isArray(x) && typeof x.errorcode === 'string';",
+                  "",
+                  "pm.test('Moodle answers with JSON and no error', () => {",
+                  "    pm.expect(d, 'response is not JSON: ' + raw.slice(0, 200)).to.not.equal(undefined);",
+                  "    pm.expect(isError(d), raw.slice(0, 300)).to.be.false;",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/x-www-form-urlencoded"
+              }
+            ],
+            "body": {
+              "mode": "urlencoded",
+              "urlencoded": [
+                {
+                  "key": "wstoken",
+                  "value": "{{token}}",
+                  "type": "text"
+                },
+                {
+                  "key": "wsfunction",
+                  "value": "enrol_manual_unenrol_users",
+                  "type": "text"
+                },
+                {
+                  "key": "moodlewsrestformat",
+                  "value": "json",
+                  "type": "text"
+                },
+                {
+                  "key": "enrolments[0][userid]",
+                  "value": "{{teacherid}}",
+                  "type": "text"
+                },
+                {
+                  "key": "enrolments[0][courseid]",
+                  "value": "{{courseid}}",
+                  "type": "text"
+                },
+                {
+                  "key": "enrolments[1][userid]",
+                  "value": "{{studentid}}",
+                  "type": "text"
+                },
+                {
+                  "key": "enrolments[1][courseid]",
+                  "value": "{{courseid}}",
+                  "type": "text"
+                }
+              ]
+            },
+            "url": {
+              "raw": "{{baseurl}}/webservice/rest/server.php",
+              "host": [
+                "{{baseurl}}"
+              ],
+              "path": [
+                "webservice",
+                "rest",
+                "server.php"
+              ]
+            },
+            "description": "Removes both enrolments from the test course. Expected: no error.\n\nFunction: `enrol_manual_unenrol_users`."
+          },
+          "response": []
+        },
+        {
+          "name": "Check: nobody is enrolled",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const raw = pm.response.text().trim();",
+                  "let d = null;",
+                  "try { d = JSON.parse(raw); } catch (e) { d = undefined; }",
+                  "const isError = (x) => x !== null && typeof x === 'object' && !Array.isArray(x) && typeof x.errorcode === 'string';",
+                  "",
+                  "pm.test('Moodle answers with JSON and no error', () => {",
+                  "    pm.expect(d, 'response is not JSON: ' + raw.slice(0, 200)).to.not.equal(undefined);",
+                  "    pm.expect(isError(d), raw.slice(0, 300)).to.be.false;",
+                  "});",
+                  "",
+                  "pm.test('No participants', () => {",
+                  "    pm.expect(d).to.be.an('array').that.is.empty;",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/x-www-form-urlencoded"
+              }
+            ],
+            "body": {
+              "mode": "urlencoded",
+              "urlencoded": [
+                {
+                  "key": "wstoken",
+                  "value": "{{token}}",
+                  "type": "text"
+                },
+                {
+                  "key": "wsfunction",
+                  "value": "core_enrol_get_enrolled_users",
+                  "type": "text"
+                },
+                {
+                  "key": "moodlewsrestformat",
+                  "value": "json",
+                  "type": "text"
+                },
+                {
+                  "key": "courseid",
+                  "value": "{{courseid}}",
+                  "type": "text"
+                }
+              ]
+            },
+            "url": {
+              "raw": "{{baseurl}}/webservice/rest/server.php",
+              "host": [
+                "{{baseurl}}"
+              ],
+              "path": [
+                "webservice",
+                "rest",
+                "server.php"
+              ]
+            },
+            "description": "Expected: no participants in the test course.\n\nFunction: `core_enrol_get_enrolled_users`."
+          },
+          "response": []
+        },
+        {
+          "name": "Hide the test course",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const raw = pm.response.text().trim();",
+                  "let d = null;",
+                  "try { d = JSON.parse(raw); } catch (e) { d = undefined; }",
+                  "const isError = (x) => x !== null && typeof x === 'object' && !Array.isArray(x) && typeof x.errorcode === 'string';",
+                  "",
+                  "pm.test('Moodle answers with JSON and no error', () => {",
+                  "    pm.expect(d, 'response is not JSON: ' + raw.slice(0, 200)).to.not.equal(undefined);",
+                  "    pm.expect(isError(d), raw.slice(0, 300)).to.be.false;",
+                  "});",
+                  "",
+                  "pm.test('Updated without warnings', () => {",
+                  "    pm.expect(d.warnings, JSON.stringify(d.warnings)).to.be.an('array').that.is.empty;",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/x-www-form-urlencoded"
+              }
+            ],
+            "body": {
+              "mode": "urlencoded",
+              "urlencoded": [
+                {
+                  "key": "wstoken",
+                  "value": "{{token}}",
+                  "type": "text"
+                },
+                {
+                  "key": "wsfunction",
+                  "value": "core_course_update_courses",
+                  "type": "text"
+                },
+                {
+                  "key": "moodlewsrestformat",
+                  "value": "json",
+                  "type": "text"
+                },
+                {
+                  "key": "courses[0][id]",
+                  "value": "{{courseid}}",
+                  "type": "text"
+                },
+                {
+                  "key": "courses[0][visible]",
+                  "value": "0",
+                  "type": "text"
+                }
+              ]
+            },
+            "url": {
+              "raw": "{{baseurl}}/webservice/rest/server.php",
+              "host": [
+                "{{baseurl}}"
+              ],
+              "path": [
+                "webservice",
+                "rest",
+                "server.php"
+              ]
+            },
+            "description": "Hides the test course from students. Expected: no warning.\n\nFunction: `core_course_update_courses`."
+          },
+          "response": []
+        },
+        {
+          "name": "Check: the course is hidden",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const raw = pm.response.text().trim();",
+                  "let d = null;",
+                  "try { d = JSON.parse(raw); } catch (e) { d = undefined; }",
+                  "const isError = (x) => x !== null && typeof x === 'object' && !Array.isArray(x) && typeof x.errorcode === 'string';",
+                  "",
+                  "pm.test('Moodle answers with JSON and no error', () => {",
+                  "    pm.expect(d, 'response is not JSON: ' + raw.slice(0, 200)).to.not.equal(undefined);",
+                  "    pm.expect(isError(d), raw.slice(0, 300)).to.be.false;",
+                  "});",
+                  "",
+                  "pm.test('The course is hidden', () => {",
+                  "    pm.expect(d.courses).to.be.an('array').with.lengthOf(1);",
+                  "    pm.expect(d.courses[0].visible).to.equal(0);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/x-www-form-urlencoded"
+              }
+            ],
+            "body": {
+              "mode": "urlencoded",
+              "urlencoded": [
+                {
+                  "key": "wstoken",
+                  "value": "{{token}}",
+                  "type": "text"
+                },
+                {
+                  "key": "wsfunction",
+                  "value": "core_course_get_courses_by_field",
+                  "type": "text"
+                },
+                {
+                  "key": "moodlewsrestformat",
+                  "value": "json",
+                  "type": "text"
+                },
+                {
+                  "key": "field",
+                  "value": "id",
+                  "type": "text"
+                },
+                {
+                  "key": "value",
+                  "value": "{{courseid}}",
+                  "type": "text"
+                }
+              ]
+            },
+            "url": {
+              "raw": "{{baseurl}}/webservice/rest/server.php",
+              "host": [
+                "{{baseurl}}"
+              ],
+              "path": [
+                "webservice",
+                "rest",
+                "server.php"
+              ]
+            },
+            "description": "Reads the course by `id`. Expected: not visible.\n\nFunction: `core_course_get_courses_by_field`."
+          },
+          "response": []
+        },
+        {
+          "name": "Suspend the test accounts",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const raw = pm.response.text().trim();",
+                  "let d = null;",
+                  "try { d = JSON.parse(raw); } catch (e) { d = undefined; }",
+                  "const isError = (x) => x !== null && typeof x === 'object' && !Array.isArray(x) && typeof x.errorcode === 'string';",
+                  "",
+                  "pm.test('Moodle answers with JSON and no error', () => {",
+                  "    pm.expect(d, 'response is not JSON: ' + raw.slice(0, 200)).to.not.equal(undefined);",
+                  "    pm.expect(isError(d), raw.slice(0, 300)).to.be.false;",
+                  "});",
+                  "",
+                  "pm.test('No warnings', () => {",
+                  "    pm.expect(d === null || (Array.isArray(d.warnings) && d.warnings.length === 0), raw).to.be.true;",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/x-www-form-urlencoded"
+              }
+            ],
+            "body": {
+              "mode": "urlencoded",
+              "urlencoded": [
+                {
+                  "key": "wstoken",
+                  "value": "{{token}}",
+                  "type": "text"
+                },
+                {
+                  "key": "wsfunction",
+                  "value": "core_user_update_users",
+                  "type": "text"
+                },
+                {
+                  "key": "moodlewsrestformat",
+                  "value": "json",
+                  "type": "text"
+                },
+                {
+                  "key": "users[0][id]",
+                  "value": "{{teacherid}}",
+                  "type": "text"
+                },
+                {
+                  "key": "users[0][suspended]",
+                  "value": "1",
+                  "type": "text"
+                },
+                {
+                  "key": "users[1][id]",
+                  "value": "{{studentid}}",
+                  "type": "text"
+                },
+                {
+                  "key": "users[1][suspended]",
+                  "value": "1",
+                  "type": "text"
+                },
+                {
+                  "key": "users[2][id]",
+                  "value": "{{nologinid}}",
+                  "type": "text"
+                },
+                {
+                  "key": "users[2][suspended]",
+                  "value": "1",
+                  "type": "text"
+                },
+                {
+                  "key": "users[3][id]",
+                  "value": "{{authoffid}}",
+                  "type": "text"
+                },
+                {
+                  "key": "users[3][suspended]",
+                  "value": "1",
+                  "type": "text"
+                }
+              ]
+            },
+            "url": {
+              "raw": "{{baseurl}}/webservice/rest/server.php",
+              "host": [
+                "{{baseurl}}"
+              ],
+              "path": [
+                "webservice",
+                "rest",
+                "server.php"
+              ]
+            },
+            "description": "Suspends the teacher, the student and the accounts of folder 3. Expected: no error.\n\nFunction: `core_user_update_users`."
+          },
+          "response": []
+        },
+        {
+          "name": "Check: the test accounts are suspended",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const raw = pm.response.text().trim();",
+                  "let d = null;",
+                  "try { d = JSON.parse(raw); } catch (e) { d = undefined; }",
+                  "const isError = (x) => x !== null && typeof x === 'object' && !Array.isArray(x) && typeof x.errorcode === 'string';",
+                  "",
+                  "pm.test('Moodle answers with JSON and no error', () => {",
+                  "    pm.expect(d, 'response is not JSON: ' + raw.slice(0, 200)).to.not.equal(undefined);",
+                  "    pm.expect(isError(d), raw.slice(0, 300)).to.be.false;",
+                  "});",
+                  "",
+                  "pm.test('Five accounts, all suspended', () => {",
+                  "    pm.expect(d).to.be.an('array').with.lengthOf(5);",
+                  "    d.forEach((u) => pm.expect(u.suspended, u.username).to.equal(true));",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/x-www-form-urlencoded"
+              }
+            ],
+            "body": {
+              "mode": "urlencoded",
+              "urlencoded": [
+                {
+                  "key": "wstoken",
+                  "value": "{{token}}",
+                  "type": "text"
+                },
+                {
+                  "key": "wsfunction",
+                  "value": "core_user_get_users_by_field",
+                  "type": "text"
+                },
+                {
+                  "key": "moodlewsrestformat",
+                  "value": "json",
+                  "type": "text"
+                },
+                {
+                  "key": "field",
+                  "value": "id",
+                  "type": "text"
+                },
+                {
+                  "key": "values[0]",
+                  "value": "{{teacherid}}",
+                  "type": "text"
+                },
+                {
+                  "key": "values[1]",
+                  "value": "{{studentid}}",
+                  "type": "text"
+                },
+                {
+                  "key": "values[2]",
+                  "value": "{{suspendedid}}",
+                  "type": "text"
+                },
+                {
+                  "key": "values[3]",
+                  "value": "{{nologinid}}",
+                  "type": "text"
+                },
+                {
+                  "key": "values[4]",
+                  "value": "{{authoffid}}",
+                  "type": "text"
+                }
+              ]
+            },
+            "url": {
+              "raw": "{{baseurl}}/webservice/rest/server.php",
+              "host": [
+                "{{baseurl}}"
+              ],
+              "path": [
+                "webservice",
+                "rest",
+                "server.php"
+              ]
+            },
+            "description": "Reads the five test accounts by `id`. Expected: all suspended.\n\nFunction: `core_user_get_users_by_field`."
+          },
+          "response": []
+        }
+      ]
+    }
+  ]
+}
